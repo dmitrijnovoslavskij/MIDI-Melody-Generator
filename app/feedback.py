@@ -129,12 +129,12 @@ def parse_feedback(key: str, mode: str, text: str) -> dict:
     """Пробует Ollama, при ошибке — keyword fallback. Никогда не кидает исключение."""
     try:
         result = _parse_with_ollama(key, mode, text)
-        print(f"[Feedback] Ollama ✅  liked={result.get('liked')}")
+        print(f"[Feedback] Ollama OK liked={result.get('liked')}")
         return result
     except Exception as e:
-        print(f"[Feedback] Ollama недоступна ({e}) — keyword fallback ⚠️")
+        print(f"[Feedback] Ollama недоступна ({e}) — keyword fallback")
         result = _keyword_fallback(text)
-        print(f"[Feedback] Keyword  ⚠️  liked={result.get('liked')}")
+        print(f"[Feedback] Keyword liked={result.get('liked')}")
         return result
 
 

@@ -64,7 +64,6 @@ def github_request(url: str) -> dict:
     req.add_header("Authorization", f"token {GITHUB_TOKEN}")
     req.add_header("Accept", "application/vnd.github.v3+json")
     req.add_header("User-Agent", "MIDIGen-Launcher/1.0")
-    req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
 
@@ -320,9 +319,10 @@ class LauncherApp(tk.Tk):
         try:
             self._do_setup()
         except Exception as e:
+            import traceback
             self._set_status(f"Error: {e}")
-            self._log_line(str(e), "err")
-            messagebox.showerror("MIDI Gen — Error", str(e))
+            self._log_line(traceback.format_exc(), "err")
+            messagebox.showerror("MIDI Gen — Error", traceback.format_exc())
 
     def _do_setup(self):
         # ── 1. Check remote version ───────────────────────────────────────────

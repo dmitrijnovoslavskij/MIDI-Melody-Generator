@@ -72,6 +72,7 @@ def download_file(url: str, dest: Path, progress_cb=None):
     """Downloads a file with progress callback(downloaded_bytes, total_bytes)."""
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"token {GITHUB_TOKEN}")
+    req.add_header("Accept", "application/octet-stream")
     req.add_header("User-Agent", "MIDIGen-Launcher/1.0")
 
     with urllib.request.urlopen(req, timeout=60) as resp:
@@ -318,10 +319,9 @@ class LauncherApp(tk.Tk):
         try:
             self._do_setup()
         except Exception as e:
-            import traceback
             self._set_status(f"Error: {e}")
-            self._log_line(traceback.format_exc(), "err")
-            messagebox.showerror("MIDI Gen — Error", traceback.format_exc())
+            self._log_line(str(e), "err")
+            messagebox.showerror("MIDI Gen — Error", str(e))
 
     def _do_setup(self):
         # ── 1. Check remote version ───────────────────────────────────────────
@@ -514,8 +514,8 @@ class LauncherApp(tk.Tk):
             ],
             cwd=str(APP_DIR),
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=open(str(INSTALL_DIR / "backend.log"), "w"),
+            stderr=open(str(INSTALL_DIR / "backend_err.log"), "w"),
         )
         if IS_WINDOWS:
             backend_opts["creationflags"] = (
@@ -533,7 +533,7 @@ class LauncherApp(tk.Tk):
                 time.sleep(1)
 
         # Start Electron
-        electron_main = APP_DIR / "electron_main.js"
+        electron_main = APP_DIR / "app" / "electron_main.js"
         e_opts = dict(
             args=[str(ELECTRON_BIN), str(electron_main)],
             cwd=str(APP_DIR),

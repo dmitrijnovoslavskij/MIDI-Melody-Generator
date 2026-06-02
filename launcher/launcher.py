@@ -533,7 +533,7 @@ class LauncherApp(tk.Tk):
                 time.sleep(1)
 
         # Start Electron
-        electron_main = APP_DIR / "app" / "electron_main.js"
+        electron_main = APP_DIR / "electron_main.js"
         e_opts = dict(
             args=[str(ELECTRON_BIN), str(electron_main)],
             cwd=str(APP_DIR),

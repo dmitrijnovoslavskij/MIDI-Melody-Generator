@@ -64,6 +64,7 @@ def github_request(url: str) -> dict:
     req.add_header("Authorization", f"token {GITHUB_TOKEN}")
     req.add_header("Accept", "application/vnd.github.v3+json")
     req.add_header("User-Agent", "MIDIGen-Launcher/1.0")
+    req.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
 
@@ -533,7 +534,7 @@ class LauncherApp(tk.Tk):
                 time.sleep(1)
 
         # Start Electron
-        electron_main = APP_DIR / "electron_main.js"
+        electron_main = APP_DIR / "app" / "electron_main.js"
         e_opts = dict(
             args=[str(ELECTRON_BIN), str(electron_main)],
             cwd=str(APP_DIR),

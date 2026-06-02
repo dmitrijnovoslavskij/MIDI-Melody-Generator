@@ -72,7 +72,6 @@ def download_file(url: str, dest: Path, progress_cb=None):
     """Downloads a file with progress callback(downloaded_bytes, total_bytes)."""
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"token {GITHUB_TOKEN}")
-    req.add_header("Accept", "application/octet-stream")
     req.add_header("User-Agent", "MIDIGen-Launcher/1.0")
 
     with urllib.request.urlopen(req, timeout=60) as resp:

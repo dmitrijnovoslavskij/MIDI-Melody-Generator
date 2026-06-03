@@ -550,16 +550,38 @@ class LauncherApp(tk.Tk):
                         downloaded_bytes += len(chunk)
                         electron_progress(downloaded_bytes, total)
 
-            # На macOS используем системный unzip — он сохраняет симлинки.
-            # Python's zipfile.extractall() записывает симлинки как текст,
-            # из-за чего Electron Framework.framework ломается.
-            if IS_MAC:
-                result = run_silent(["unzip", "-q", "-o", str(electron_zip), "-d", str(ELECTRON_DIR)])
-                if result.returncode != 0:
-                    raise RuntimeError(f"unzip failed:\n{result.stderr}")
-            else:
-                with zipfile.ZipFile(electron_zip, "r") as zf:
-                    zf.extractall(ELECTRON_DIR)
+            # zipfile.extractall() не создаёт симлинки — используем ручную распаковку.
+            # Electron zip на macOS содержит десятки симлинков внутри .framework папок,
+            # без них dyld не может найти библиотеки.
+            def extract_zip_with_symlinks(zip_path: Path, dest: Path):
+                import stat
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    for info in zf.infolist():
+                        target = dest / info.filename
+                        # Верхние биты внешних атрибутов хранят Unix file mode
+                        unix_mode = (info.external_attr >> 16) & 0xFFFF
+                        is_symlink = stat.S_ISLNK(unix_mode)
+
+                        if info.filename.endswith("/"):
+                            target.mkdir(parents=True, exist_ok=True)
+                            continue
+
+                        target.parent.mkdir(parents=True, exist_ok=True)
+
+                        if is_symlink:
+                            # Содержимое файла — это путь назначения симлинка
+                            link_target = zf.read(info).decode("utf-8")
+                            if target.exists() or target.is_symlink():
+                                target.unlink()
+                            os.symlink(link_target, target)
+                        else:
+                            with zf.open(info) as src, open(target, "wb") as dst:
+                                shutil.copyfileobj(src, dst)
+                            # Восстанавливаем executable bit
+                            if unix_mode & 0o111:
+                                target.chmod(target.stat().st_mode | 0o111)
+
+            extract_zip_with_symlinks(electron_zip, ELECTRON_DIR)
             electron_zip.unlink(missing_ok=True)
 
             if not IS_WINDOWS:

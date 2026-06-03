@@ -54,7 +54,23 @@ APP_VERSION_FILE = "version.txt"            # ← файл с версией в 
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC     = platform.system() == "Darwin"
-ARCH       = platform.machine().lower()  # "arm64" или "x86_64"
+
+def _detect_arch() -> str:
+    """Надёжно определяет архитектуру, даже если Python запущен через Rosetta."""
+    if IS_MAC:
+        try:
+            # sysctl не врёт даже под Rosetta
+            result = subprocess.run(
+                ["sysctl", "-n", "hw.optional.arm64"],
+                capture_output=True, text=True, timeout=3
+            )
+            if result.stdout.strip() == "1":
+                return "arm64"
+        except Exception:
+            pass
+    return platform.machine().lower()
+
+ARCH = _detect_arch()
 
 # ─── Pick Electron version based on macOS version ─────────────────────────────
 # Electron 33+ requires macOS 11 (Big Sur).  Electron 34+ requires macOS 12 (Monterey).
@@ -484,9 +500,16 @@ class LauncherApp(tk.Tk):
                 self._log_line(f"→ Electron version mismatch ({cached_ver} → {ELECTRON_VERSION}), re-downloading...")
                 shutil.rmtree(ELECTRON_DIR, ignore_errors=True)
         elif ELECTRON_DIR.exists() and not electron_ver_file.exists():
-            # No version stamp — could be v28; wipe to be safe
+            # No version stamp — could be wrong arch or old version; wipe to be safe
             self._log_line("→ Electron version unknown, re-downloading...")
             shutil.rmtree(ELECTRON_DIR, ignore_errors=True)
+
+        # Extra guard: if binary exists but crashes on --version, it's wrong arch
+        if ELECTRON_BIN.exists():
+            probe = run_silent([str(ELECTRON_BIN), "--version"])
+            if probe.returncode != 0:
+                self._log_line("→ Electron binary invalid (wrong arch?), re-downloading...")
+                shutil.rmtree(ELECTRON_DIR, ignore_errors=True)
 
         if not ELECTRON_BIN.exists():
             self._set_status(f"Downloading Electron {ELECTRON_VERSION}...")

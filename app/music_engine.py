@@ -29,39 +29,148 @@ SIXTEENTH = TPB // 4
 DOTTED_Q  = int(TPB * 1.5)
 DOTTED_E  = int(TPB * 0.75)
 
-PROGRESSIONS = {
-    "minor": [
-        [0, 3, 4, 6],
-        [0, 5, 3, 4],
-        [0, 6, 3, 4],
-        [0, 3, 6, 4],
-        [0, 4, 5, 3],
-    ],
-    "major": [
-        [0, 3, 4, 1],
-        [0, 5, 3, 4],
-        [0, 3, 5, 4],
-        [5, 3, 0, 4],
-        [0, 1, 3, 4],
-    ]
+# ─── Functional harmony tables ────────────────────────────────────────────────
+# Degree roles in a 7-note scale (0-based).
+# T=tonic, S=subdominant, D=dominant — standard functional harmony.
+DEGREE_FUNCTION = {
+    "minor": {0: "T", 1: "S", 2: "T", 3: "S", 4: "D", 5: "T", 6: "D"},
+    "major": {0: "T", 1: "S", 2: "T", 3: "S", 4: "D", 5: "S", 6: "D"},
 }
 
-# Rhythm palettes — indexed by density hint
-MELODY_RHYTHMS_DENSE = [
-    [(EIGHTH, False), (EIGHTH, False), (QUARTER, False), (EIGHTH, True), (EIGHTH, False), (QUARTER, False)],
-    [(EIGHTH, False), (EIGHTH, True), (EIGHTH, False), (EIGHTH, False), (EIGHTH, False), (EIGHTH, True), (EIGHTH, False), (EIGHTH, False)],
-    [(SIXTEENTH, False), (EIGHTH, False), (SIXTEENTH, True), (QUARTER, False), (EIGHTH, False), (DOTTED_E, False), (SIXTEENTH, True)],
-    [(DOTTED_E, False), (SIXTEENTH, False), (DOTTED_E, False), (SIXTEENTH, True), (QUARTER, False)],
-    [(SIXTEENTH, False), (SIXTEENTH, False), (SIXTEENTH, False), (SIXTEENTH, False), (HALF, False), (QUARTER, True)],
+# Which functions can follow which (classical voice-leading rules)
+FUNCTION_GRAPH = {
+    "T": ["T", "S", "D"],
+    "S": ["S", "D", "T"],
+    "D": ["T", "D"],   # dominant resolves to tonic; D→S is weak, avoided
+}
+
+# Degrees grouped by function for quick lookup
+def _degrees_by_function(mode):
+    return {
+        fn: [d for d, f in DEGREE_FUNCTION[mode].items() if f == fn]
+        for fn in ("T", "S", "D")
+    }
+
+def generate_progression(mode: str, length: int = 4) -> list:
+    """
+    Algorithmically build a chord progression of `length` chords
+    following functional harmony rules (T→S→D→T).
+    Always starts and ends on tonic (degree 0).
+    Returns a list of scale degrees.
+    """
+    by_fn = _degrees_by_function(mode)
+    deg_fn = DEGREE_FUNCTION[mode]
+
+    result = [0]  # start on tonic
+    current_fn = "T"
+
+    for _ in range(length - 2):
+        next_fns = FUNCTION_GRAPH[current_fn]
+        # Weight: prefer moving forward T→S→D, less likely to stay on same function
+        fn_weights = []
+        for fn in next_fns:
+            if fn == current_fn:
+                fn_weights.append(0.5)
+            elif next_fns.index(fn) > 0:
+                fn_weights.append(2.0)
+            else:
+                fn_weights.append(1.0)
+        next_fn = random.choices(next_fns, weights=fn_weights, k=1)[0]
+        candidates = by_fn[next_fn]
+        # Avoid repeating last degree
+        candidates = [d for d in candidates if d != result[-1]] or candidates
+        result.append(random.choice(candidates))
+        current_fn = next_fn
+
+    # End on tonic — prefer degree 0, occasionally degree 2 (mediant) for colour
+    result.append(random.choices([0, 2], weights=[4, 1], k=1)[0])
+    return result
+
+
+# ─── Rhythm generation ────────────────────────────────────────────────────────
+# Base atoms: (duration, rest_probability_weight)
+_RHYTHM_ATOMS_DENSE = [
+    (SIXTEENTH, 0.10),
+    (EIGHTH,    0.15),
+    (DOTTED_E,  0.20),
+    (QUARTER,   0.25),
 ]
-MELODY_RHYTHMS_SPARSE = [
-    [(DOTTED_Q, False), (EIGHTH, True), (HALF, False)],
-    [(QUARTER, False), (EIGHTH, True), (EIGHTH, False), (QUARTER, False), (QUARTER, True)],
-    [(HALF, False), (QUARTER, True), (QUARTER, False)],
+_RHYTHM_ATOMS_SPARSE = [
+    (QUARTER,   0.10),
+    (DOTTED_Q,  0.15),
+    (HALF,      0.20),
+    (WHOLE,     0.30),
+]
+_RHYTHM_ATOMS_NORMAL = _RHYTHM_ATOMS_DENSE + _RHYTHM_ATOMS_SPARSE
+
+def _generate_bar_rhythm(density: str, bar_ticks: int = TPB * 4) -> list:
+    """
+    Procedurally fill one bar with note/rest slots.
+    Returns list of (duration, is_rest) that sum exactly to bar_ticks.
+    """
+    if density == "dense":
+        atoms = _RHYTHM_ATOMS_DENSE
+        rest_bias = 0.18   # ~18% of slots become rests
+        synco_prob = 0.30  # probability of a syncopation (rest on beat, note off-beat)
+    elif density == "sparse":
+        atoms = _RHYTHM_ATOMS_SPARSE
+        rest_bias = 0.40
+        synco_prob = 0.10
+    else:
+        atoms = _RHYTHM_ATOMS_NORMAL
+        rest_bias = 0.25
+        synco_prob = 0.20
+
+    durations = [d for d, _ in atoms]
+    weights   = [w for _, w in atoms]
+
+    result = []
+    remaining = bar_ticks
+
+    while remaining > 0:
+        # Only pick durations that fit
+        valid = [(d, w) for d, w in zip(durations, weights) if d <= remaining]
+        if not valid:
+            # Fill remainder with a rest
+            result.append((remaining, True))
+            break
+        vd, vw = zip(*valid)
+        dur = random.choices(vd, weights=vw, k=1)[0]
+
+        # Syncopation: occasionally swap a beat-aligned note for rest+shorter note
+        is_beat = (bar_ticks - remaining) % QUARTER == 0
+        if is_beat and random.random() < synco_prob and dur >= EIGHTH * 2:
+            # rest for half the duration, note for the other half
+            half = dur // 2
+            result.append((half, True))
+            result.append((half, False))
+        else:
+            is_rest = random.random() < rest_bias
+            result.append((dur, is_rest))
+
+        remaining -= dur
+
+    # Make sure bar doesn't start or end with all rests — fix first/last slot
+    if result and result[0][1]:
+        result[0] = (result[0][0], False)
+    if result and result[-1][1]:
+        result[-1] = (result[-1][0], False)
+
+    return result
+
+
+# Keep static palettes for chord/bass (they work fine, procedural rhythm only for melody)
+CHORD_RHYTHMS_LESS = [
     [(WHOLE, False)],
+    [(DOTTED_Q, False), (DOTTED_Q, True), (HALF, True)],
     [(HALF, False), (HALF, True)],
 ]
-MELODY_RHYTHMS_NORMAL = MELODY_RHYTHMS_DENSE + MELODY_RHYTHMS_SPARSE
+CHORD_RHYTHMS_MORE = [
+    [(HALF, False), (HALF, False)],
+    [(DOTTED_Q, False), (EIGHTH, True), (HALF, False)],
+    [(HALF, False), (QUARTER, False), (QUARTER, True)],
+]
+CHORD_RHYTHMS_NORMAL = CHORD_RHYTHMS_LESS + CHORD_RHYTHMS_MORE
 
 CHORD_RHYTHMS_LESS = [
     [(WHOLE, False)],
@@ -174,7 +283,9 @@ def build_chord(root_midi, mode, degree, min_interval=0):
 
 def get_progression(root="C", mode="minor", min_interval=0):
     root_midi = NOTE_MAP[root] + (3 - 4) * 12
-    degrees = random.choice(PROGRESSIONS[mode])
+    # Vary progression length: usually 4 chords, occasionally 3 or 6
+    length = random.choices([3, 4, 4, 4, 6], weights=[1, 4, 4, 4, 1], k=1)[0]
+    degrees = generate_progression(mode, length=length)
     chords = [build_chord(root_midi, mode, d, min_interval=min_interval) for d in degrees]
     return chords, degrees
 
@@ -224,35 +335,66 @@ def generate_melody(scale_notes, chords, bars=8, density="normal", variety="norm
     chord_prob_base = 0.40 if variety == "more" else (0.70 if variety == "less" else 0.55)
     leap_prob = 0.20 if variety == "more" else (0.04 if variety == "less" else 0.12)
 
-    if density == "dense":
-        rhythms = MELODY_RHYTHMS_DENSE
-    elif density == "sparse":
-        rhythms = MELODY_RHYTHMS_SPARSE
-    else:
-        rhythms = MELODY_RHYTHMS_NORMAL
+    # ── Motif: capture first 2-3 pitched notes of bar 0, reuse/vary later ──────
+    motif_notes = []          # raw MIDI notes of the motif
+    motif_captured = False
+    # Probability per bar that the motif is replayed (transposed to current chord root)
+    motif_replay_prob = 0.30
 
     for bar in range(bars):
         chord = chords[bar % len(chords)]
-        rhythm = random.choice(rhythms)
 
-        for duration, is_rest in rhythm:
+        # Procedural rhythm for this bar
+        rhythm = _generate_bar_rhythm(density)
+
+        # Decide if we replay the motif this bar (not on bar 0 while capturing)
+        replay_motif = (
+            motif_captured
+            and bar > 0
+            and random.random() < motif_replay_prob
+        )
+        motif_pos = 0  # index into motif_notes when replaying
+
+        for slot_idx, (duration, is_rest) in enumerate(rhythm):
             if is_rest:
                 melody.append({"note": 0, "duration": duration, "velocity": 0})
                 continue
 
-            if len(recent_notes) >= 3 and len(set(recent_notes[-3:])) == 1:
-                note = smooth_step(current, melody_scale, max_jump=max_jump_base + 1)
+            # ── Motif replay: use stored interval pattern, transposed ──────────
+            if replay_motif and motif_pos < len(motif_notes):
+                # Transpose motif relative to current chord root vs original chord root
+                original_root = chords[0][0]
+                current_root  = chord[0]
+                transposed = motif_notes[motif_pos] + (current_root - original_root)
+                # Clamp to melody range
+                lo, hi = melody_scale[0], melody_scale[-1]
+                while transposed < lo: transposed += 12
+                while transposed > hi: transposed -= 12
+                note = transposed
+                motif_pos += 1
+                current = note
             else:
-                note = chord_tone_or_passing(current, chord, melody_scale, chord_prob=chord_prob_base)
+                # ── Normal note selection ─────────────────────────────────────
+                if len(recent_notes) >= 3 and len(set(recent_notes[-3:])) == 1:
+                    note = smooth_step(current, melody_scale, max_jump=max_jump_base + 1)
+                else:
+                    note = chord_tone_or_passing(current, chord, melody_scale, chord_prob=chord_prob_base)
 
-            if random.random() < leap_prob and len(melody_scale) > 5:
-                leap = random.choice(melody_scale)
-                if abs(leap - current) in (5, 7, 12):
-                    note = leap
+                if random.random() < leap_prob and len(melody_scale) > 5:
+                    leap = random.choice(melody_scale)
+                    if abs(leap - current) in (5, 7, 12):
+                        note = leap
 
-            current = note
+                current = note
+
+            # ── Capture motif from bar 0 (first 2-3 pitched notes) ───────────
+            if bar == 0 and not motif_captured:
+                motif_notes.append(note)
+                if len(motif_notes) >= random.randint(2, 3):
+                    motif_captured = True
+
             recent_notes.append(note)
-            if len(recent_notes) > 6:
+            if len(recent_notes) > 8:
                 recent_notes.pop(0)
 
             base_vel = 82

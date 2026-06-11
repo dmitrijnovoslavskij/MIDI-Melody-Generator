@@ -1,15 +1,13 @@
 import os
+import time
 import json
-import base64
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 
-from app.music_engine import generate_music_plan
+from app.music_engine import generate_music_plan, SCALES, PROGRESSIONS, BASS_PATTERNS, EIGHTH, SIXTEENTH, QUARTER
 from app.midi_gen import create_midi
-from app.feedback_vector import VectorFeedbackItem, save_vector_feedback
 
 app = FastAPI()
 
@@ -20,23 +18,74 @@ def index():
     with open(GUI_PATH, "r", encoding="utf-8") as f:
         return f.read()
 
-# ─── Generate ──────────────────────────────────────────────────────────────────
+# ─── Schema ────────────────────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
-    energy:     int = 0      # -100..+100
-    joy:        int = 0      # -100..+100
-    complexity: int = 0      # -100..+100
-    bpm:        Optional[int] = None   # user-overridden BPM (optional)
-    bars:       int = 8
+    # Harmony
+    key:                str   = "C"
+    mode:               str   = "minor"
+    progression:        str   = "I-V-vi-IV"
+    chord_voicing:      str   = "close"
+    chord_min_interval: int   = 0
+    # Tempo & structure
+    bpm:                int   = 90
+    bars:               int   = 8
+    # Melody
+    melody_rhythm:      str   = "normal"
+    melody_max_jump:    int   = 3
+    melody_chord_prob:  float = 0.55
+    melody_leap_prob:   float = 0.10
+    melody_octave_lo:   int   = 60
+    melody_octave_hi:   int   = 84
+    melody_motif_repeat: bool = True
+    melody_velocity:    int   = 82
+    melody_vel_var:     int   = 12
+    # Chords
+    chord_rhythm:       str   = "normal"
+    chord_velocity:     int   = 58
+    # Bass
+    bass_pattern:       str   = "root_fifth"
+    bass_velocity_scale: float = 1.0
+    # Arpeggio
+    arp_enabled:        bool  = False
+    arp_pattern:        str   = "up"
+    arp_note_dur:       int   = EIGHTH
+    arp_velocity:       int   = 68
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
     music = generate_music_plan(
-        energy=req.energy,
-        joy=req.joy,
-        complexity=req.complexity,
-        bpm=req.bpm,
-        bars=req.bars,
+        key=req.key, mode=req.mode,
+        progression=req.progression,
+        chord_voicing=req.chord_voicing,
+        chord_min_interval=req.chord_min_interval,
+        bpm=req.bpm, bars=req.bars,
+        melody_rhythm=req.melody_rhythm,
+        melody_max_jump=req.melody_max_jump,
+        melody_chord_prob=req.melody_chord_prob,
+        melody_leap_prob=req.melody_leap_prob,
+        melody_octave_lo=req.melody_octave_lo,
+        melody_octave_hi=req.melody_octave_hi,
+        melody_motif_repeat=req.melody_motif_repeat,
+        melody_velocity=req.melody_velocity,
+        melody_vel_var=req.melody_vel_var,
+        chord_rhythm=req.chord_rhythm,
+        chord_velocity=req.chord_velocity,
+        bass_pattern=req.bass_pattern,
+        bass_velocity_scale=req.bass_velocity_scale,
+        arp_enabled=req.arp_enabled,
+        arp_pattern=req.arp_pattern,
+        arp_note_dur=req.arp_note_dur,
+        arp_velocity=req.arp_velocity,
     )
+
+    tracks = {
+        "melody":      music["melody"],
+        "chord_track": music["chord_track"],
+        "bass":        music["bass"],
+    }
+    if music.get("arp"):
+        tracks["arp"] = music["arp"]
+
     path = create_midi(
         melody=music["melody"],
         chord_track=music["chord_track"],
@@ -44,20 +93,19 @@ def generate(req: GenerateRequest):
         tpb=music["tpb"],
         bpm=music["bpm"],
     )
+
     return {
         "file": path,
         "music": {
-            "key":        music["key"],
-            "mode":       music["mode"],
-            "bpm":        music["bpm"],
-            "degrees":    music["degrees"],
-            "energy":     music["energy"],
-            "joy":        music["joy"],
-            "complexity": music["complexity"],
+            "key":      music["key"],
+            "mode":     music["mode"],
+            "bpm":      music["bpm"],
+            "degrees":  music["degrees"],
+            "tracks":   tracks,
+            "tpb":      music["tpb"],
         }
     }
 
-# ─── Download ──────────────────────────────────────────────────────────────────
 @app.get("/download")
 def download_midi(path: str):
     abs_path = os.path.abspath(path)
@@ -73,161 +121,18 @@ def download_midi(path: str):
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
-# ─── Vector Feedback ───────────────────────────────────────────────────────────
-class VectorFeedbackRequest(BaseModel):
-    key:               str
-    mode:              str
-    request_vector:    dict   # {x, y, z}
-    perception_vector: dict   # {x, y, z}
-    distance:          float
-
-@app.post("/feedback_vector")
-def feedback_vector(fb: VectorFeedbackRequest):
-    entry = save_vector_feedback(VectorFeedbackItem(
-        key=fb.key,
-        mode=fb.mode,
-        request_vector=fb.request_vector,
-        perception_vector=fb.perception_vector,
-        distance=fb.distance,
-    ))
-    # Try to auto-sync to GitHub after each feedback
-    try:
-        _github_sync_internal()
-    except Exception:
-        pass
-
-    dist = fb.distance
-    if dist < 50:
-        verdict = "🎯 Отлично — почти точное попадание"
-    elif dist < 120:
-        verdict = f"↗ Небольшое расхождение ({int(dist):.0f})"
-    else:
-        verdict = f"↗↗ Большое расхождение ({int(dist):.0f}) — учту"
-
-    return {"status": "ok", "understood": verdict, "distance": dist}
-
-# ─── GitHub Profile Sync ───────────────────────────────────────────────────────
-GITHUB_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "github_config.json")
-FEEDBACK_VECTOR_FILE = os.path.join(os.path.dirname(__file__), "feedback_vector.json")
-
-def _load_github_config():
-    if os.path.exists(GITHUB_CONFIG_FILE):
-        try:
-            with open(GITHUB_CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def _save_github_config(cfg: dict):
-    with open(GITHUB_CONFIG_FILE, "w") as f:
-        json.dump(cfg, f, indent=2)
-
-class GitHubConnectRequest(BaseModel):
-    url:   str
-    token: str
-
-@app.post("/github/connect")
-def github_connect(req: GitHubConnectRequest):
-    import re, requests as rq
-    # Parse owner/repo from URL
-    m = re.search(r'github\.com/([^/]+)/([^/]+?)(?:\.git)?$', req.url.rstrip('/'))
-    if not m:
-        return {"ok": False, "error": "Неверный URL репозитория"}
-    owner, repo = m.group(1), m.group(2)
-    # Verify token via GitHub API
-    try:
-        r = rq.get(
-            f"https://api.github.com/repos/{owner}/{repo}",
-            headers={"Authorization": f"token {req.token}", "Accept": "application/vnd.github.v3+json"},
-            timeout=10
-        )
-        if r.status_code == 200:
-            cfg = {"url": req.url, "token": req.token, "owner": owner, "repo": repo}
-            _save_github_config(cfg)
-            return {"ok": True, "message": f"Подключено: {owner}/{repo}"}
-        elif r.status_code == 401:
-            return {"ok": False, "error": "Неверный токен"}
-        elif r.status_code == 404:
-            return {"ok": False, "error": "Репозиторий не найден"}
-        else:
-            return {"ok": False, "error": f"GitHub ответил {r.status_code}"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-@app.get("/github/status")
-def github_status():
-    cfg = _load_github_config()
-    if not cfg.get("owner"):
-        return {"connected": False}
-    return {"connected": True, "message": f"{cfg['owner']}/{cfg['repo']}"}
-
-def _github_sync_internal():
-    """Upload feedback_vector.json to GitHub repo as midi-gen-profile/feedback.json"""
-    import requests as rq
-    cfg = _load_github_config()
-    if not cfg.get("token") or not cfg.get("owner"):
-        raise RuntimeError("GitHub not configured")
-    if not os.path.exists(FEEDBACK_VECTOR_FILE):
-        raise RuntimeError("No feedback file yet")
-
-    with open(FEEDBACK_VECTOR_FILE, "r", encoding="utf-8") as f:
-        content = f.read()
-    encoded = base64.b64encode(content.encode()).decode()
-
-    owner, repo, token = cfg["owner"], cfg["repo"], cfg["token"]
-    path = "midi-gen-profile/feedback.json"
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-
-    # Check if file exists (need SHA to update)
-    r = rq.get(api_url, headers=headers, timeout=10)
-    sha = r.json().get("sha") if r.status_code == 200 else None
-
-    payload = {
-        "message": "Update MIDI Gen preference profile",
-        "content": encoded,
+@app.get("/options")
+def options():
+    """Return all available parameter options for the GUI."""
+    return {
+        "keys": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "Bb", "B"],
+        "modes": list(SCALES.keys()),
+        "progressions": list(PROGRESSIONS.keys()),
+        "chord_voicings": ["close", "open", "seventh", "open_seventh"],
+        "melody_rhythms": ["normal", "dense", "sparse", "mixed", "syncopated", "dotted",
+                           "whole", "half", "quarter", "eighth"],
+        "chord_rhythms": ["whole", "half", "half_rest", "quarter", "offbeat",
+                          "sparse", "normal", "dense"],
+        "bass_patterns": list(BASS_PATTERNS.keys()),
+        "arp_patterns": ["up", "down", "up_down", "random", "outside_in"],
     }
-    if sha:
-        payload["sha"] = sha
-
-    r2 = rq.put(api_url, headers=headers, json=payload, timeout=15)
-    if r2.status_code not in (200, 201):
-        raise RuntimeError(f"GitHub API error {r2.status_code}: {r2.text[:200]}")
-
-def _github_pull_internal():
-    """Download feedback_vector.json from GitHub"""
-    import requests as rq
-    cfg = _load_github_config()
-    if not cfg.get("token") or not cfg.get("owner"):
-        raise RuntimeError("GitHub not configured")
-
-    owner, repo, token = cfg["owner"], cfg["repo"], cfg["token"]
-    path = "midi-gen-profile/feedback.json"
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-
-    r = rq.get(api_url, headers=headers, timeout=10)
-    if r.status_code == 404:
-        raise RuntimeError("Профиль не найден в репозитории — нечего загружать")
-    r.raise_for_status()
-    content = base64.b64decode(r.json()["content"]).decode()
-    with open(FEEDBACK_VECTOR_FILE, "w", encoding="utf-8") as f:
-        f.write(content)
-
-@app.post("/github/sync")
-def github_sync():
-    try:
-        # Push local → GitHub, then pull GitHub → local (to merge if multiple devices)
-        _github_sync_internal()
-        return {"ok": True, "message": "Профиль синхронизирован ↑ GitHub"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-@app.post("/github/pull")
-def github_pull():
-    try:
-        _github_pull_internal()
-        return {"ok": True, "message": "Профиль загружен из GitHub"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}

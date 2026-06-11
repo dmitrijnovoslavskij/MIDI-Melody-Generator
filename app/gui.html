@@ -1,1230 +1,1102 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MIDI Gen</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <style>
   :root {
-    --bg: #0a0a0f;
-    --surface: #13131c;
-    --surface2: #1a1a27;
-    --surface3: #222235;
-    --border: #252538;
-    --accent: #7c6af7;
-    --accent2: #a78bfa;
-    --accent3: #c4b5fd;
-    --green: #34d399;
-    --orange: #fb923c;
+    --bg: #0e0e12;
+    --surface: #17171f;
+    --surface2: #1e1e28;
+    --border: #2a2a38;
+    --accent: #7c5cfc;
+    --accent2: #c084fc;
+    --green: #4ade80;
+    --amber: #fbbf24;
     --red: #f87171;
-    --text: #e2e0ff;
-    --muted: #5a5878;
-    --muted2: #8886aa;
-    --radius: 14px;
-    --radius-sm: 8px;
+    --text: #e2e2f0;
+    --muted: #6b6b88;
+    --piano-white: #ddd8f0;
+    --piano-black: #1a1a24;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    min-height: 100vh;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: var(--accent2);
+    text-transform: uppercase;
+  }
+  .version { color: var(--muted); font-size: 10px; }
+  .header-spacer { flex: 1; }
+  .status-pill {
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: all .3s;
+  }
+  .status-pill.playing { border-color: var(--green); color: var(--green); }
+  .status-pill.generating { border-color: var(--amber); color: var(--amber); }
+
+  /* ── Layout ── */
+  .workspace {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 280px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .section {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-label {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .row.three { grid-template-columns: 1fr 1fr 1fr; }
+  .row.single { grid-template-columns: 1fr; }
+
+  .param {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .param label {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .param select, .param input[type=number] {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: inherit;
+    font-size: 11px;
+    width: 100%;
+    cursor: pointer;
+    transition: border-color .2s;
+  }
+  .param select:hover, .param input[type=number]:hover,
+  .param select:focus, .param input[type=number]:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  /* Slider */
+  .param input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    margin-top: 2px;
+  }
+  .param input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+  .param .val-display {
+    font-size: 10px;
+    color: var(--accent2);
+    text-align: right;
+    margin-top: -2px;
+  }
+
+  /* Toggle */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .toggle-row label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .toggle {
+    position: relative;
+    width: 30px; height: 16px;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--muted);
+    top: 2px; left: 2px;
+    transition: transform .2s, background .2s;
+  }
+  .toggle input:checked + .toggle-track { background: var(--accent); border-color: var(--accent); }
+  .toggle input:checked + .toggle-track::after { transform: translateX(14px); background: white; }
+
+  /* ─ Main area ─ */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Piano roll */
+  .piano-roll-container {
+    flex: 1;
+    background: var(--bg);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .roll-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .roll-title { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .track-tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .track-tab {
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 10px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: inherit;
+    letter-spacing: 0.06em;
+    transition: all .2s;
+  }
+  .track-tab.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+  .roll-canvas-wrap {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  canvas#rollCanvas {
+    display: block;
+  }
+
+  /* ── Transport ── */
+  .transport {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .btn {
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all .15s;
+    text-transform: uppercase;
+  }
+  .btn-generate {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    min-width: 100px;
+  }
+  .btn-generate:hover { background: var(--accent2); border-color: var(--accent2); }
+  .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-play {
+    background: transparent;
+    color: var(--green);
+    border-color: var(--green);
+    width: 72px;
+  }
+  .btn-play:hover { background: rgba(74,222,128,.1); }
+  .btn-stop {
+    background: transparent;
+    color: var(--red);
+    border-color: var(--red);
+  }
+  .btn-stop:hover { background: rgba(248,113,113,.1); }
+  .btn-download {
+    background: transparent;
+    color: var(--muted);
+    border-color: var(--border);
+  }
+  .btn-download:hover { color: var(--text); border-color: var(--muted); }
+
+  .transport-info {
+    display: flex;
+    gap: 16px;
+    margin-left: 8px;
+  }
+  .info-chip {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .info-chip span { color: var(--accent2); font-weight: 600; }
+
+  .progress-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width .1s linear;
+    border-radius: 2px;
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 11px;
+    color: var(--text);
+    opacity: 0;
+    transition: all .3s;
+    pointer-events: none;
+    z-index: 99;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Placeholder */
+  .roll-placeholder {
+    position: absolute;
+    inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 28px 16px 80px;
-    gap: 14px;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    pointer-events: none;
   }
+  .roll-placeholder .big { font-size: 32px; margin-bottom: 4px; }
 
-  header {
-    text-align: center;
-    position: relative;
-    width: 100%;
-    max-width: 640px;
-    margin-bottom: 4px;
-  }
-  header h1 {
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    background: linear-gradient(135deg, var(--accent2) 0%, var(--accent3) 60%, #e9d5ff 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-  header p { color: var(--muted2); font-size: 11px; margin-top: 3px; letter-spacing: 0.5px; }
-
-  .header-actions {
-    position: absolute; top: 0; right: 0;
-    display: flex; gap: 6px; align-items: center;
-  }
-  .icon-btn {
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 5px 10px;
-    color: var(--muted2); font-size: 13px; cursor: pointer;
-    transition: all 0.15s; line-height: 1;
-  }
-  .icon-btn:hover { border-color: var(--accent); color: var(--text); }
-  .icon-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
-
-  /* Lang */
-  .lang-toggle { display: flex; gap: 4px; }
-  .lang-btn {
-    padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border);
-    background: var(--surface2); color: var(--muted2); font-size: 11px;
-    font-weight: 700; cursor: pointer; transition: all 0.15s;
-  }
-  .lang-btn:hover { border-color: var(--accent); color: var(--text); }
-  .lang-btn.active { background: var(--accent); border-color: var(--accent); color: white; }
-
-  /* Bell */
-  .bell-wrap { position: absolute; top: 0; left: 0; }
-  .bell-btn {
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 5px 10px;
-    font-size: 13px; cursor: pointer; line-height: 1; position: relative;
-    transition: all 0.15s;
-  }
-  .bell-btn:hover { border-color: var(--accent); }
-  .bell-badge {
-    position: absolute; top: -5px; right: -5px;
-    background: var(--red); color: white; font-size: 9px; font-weight: 700;
-    border-radius: 10px; padding: 1px 4px; min-width: 14px;
-    text-align: center; line-height: 1.4; display: none;
-  }
-  .notif-panel {
-    display: none; position: absolute; top: 38px; left: 0;
-    width: 290px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); z-index: 200;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.5); overflow: hidden;
-  }
-  .notif-panel.open { display: block; }
-  .notif-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 14px; border-bottom: 1px solid var(--border);
-    font-size: 11px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 1px; color: var(--muted2);
-  }
-  .notif-header button {
-    background: none; border: none; color: var(--muted2);
-    font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
-  }
-  .notif-header button:hover { color: var(--text); background: var(--surface2); }
-  .notif-list { max-height: 300px; overflow-y: auto; }
-  .notif-empty { padding: 20px 14px; font-size: 12px; color: var(--muted); text-align: center; }
-  .notif-item {
-    padding: 10px 14px; border-bottom: 1px solid var(--border);
-    font-size: 12px; line-height: 1.5;
-  }
-  .notif-item:last-child { border-bottom: none; }
-  .notif-item .notif-time { color: var(--muted); font-size: 10px; margin-top: 2px; }
-  .notif-item.unread { background: rgba(124,106,247,0.05); }
-
-  /* Card */
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 18px;
-    width: 100%; max-width: 640px;
-  }
-  .card-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 1.2px; color: var(--muted2); margin-bottom: 14px;
-  }
-  .card-label span { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 10px; }
-
-  /* 3D Vector control */
-  .vector-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .vector-grid.three-col {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-  .axis-block {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .axis-block.full { grid-column: 1 / -1; }
-  .axis-header {
-    display: flex; justify-content: space-between; align-items: baseline;
-  }
-  .axis-label {
-    font-size: 11px; font-weight: 700; color: var(--muted2);
-    text-transform: uppercase; letter-spacing: 0.8px;
-  }
-  .axis-val {
-    font-size: 20px; font-weight: 800; color: var(--accent2);
-    font-variant-numeric: tabular-nums;
-    min-width: 44px; text-align: right;
-  }
-  .axis-val.positive { color: var(--green); }
-  .axis-val.negative { color: var(--red); }
-  .axis-desc { font-size: 10px; color: var(--muted); }
-  input[type=range] {
-    width: 100%; accent-color: var(--accent);
-    height: 4px; cursor: pointer;
-  }
-  .axis-track {
-    position: relative; width: 100%; height: 4px;
-    background: var(--border); border-radius: 2px; margin: 2px 0;
-  }
-  .axis-fill {
-    position: absolute; top: 0; height: 4px; border-radius: 2px;
-    transition: all 0.05s;
-  }
-  .axis-fill.positive { background: var(--accent); }
-  .axis-fill.negative { background: var(--red); }
-
-  /* Bars toggle */
-  .toggle-row { display: flex; gap: 8px; }
-  .toggle {
-    flex: 1; padding: 8px 12px; text-align: center;
-    border-radius: var(--radius-sm); border: 1px solid var(--border);
-    background: var(--surface2); color: var(--muted2);
-    cursor: pointer; font-size: 13px; transition: all 0.15s;
-  }
-  .toggle:hover { border-color: var(--accent); color: var(--text); }
-  .toggle.selected {
-    background: var(--accent); border-color: var(--accent);
-    color: white; font-weight: 600;
-  }
-
-  /* Generate button */
-  button.primary {
-    width: 100%; max-width: 640px; padding: 15px;
-    background: var(--accent); color: white;
-    border: none; border-radius: var(--radius);
-    font-size: 15px; font-weight: 700;
-    cursor: pointer; transition: opacity 0.2s;
-    letter-spacing: 0.3px;
-  }
-  button.primary:hover { opacity: 0.85; }
-  button.primary:disabled { opacity: 0.35; cursor: not-allowed; }
-
-  /* Result */
-  .result-card { display: none; width: 100%; max-width: 640px; }
-  .result-card.visible { display: block; }
-  .result-inner {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 18px;
-  }
-  .result-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-  .tag {
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 20px; padding: 4px 12px;
-    font-size: 12px; color: var(--accent2); font-weight: 500;
-  }
-  .tag.bpm { color: var(--orange); }
-
-  /* MIDI Player */
-  .player-section { margin-bottom: 16px; }
-  .player-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 1px; color: var(--muted2); margin-bottom: 10px;
-  }
-  .player-controls {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 14px;
-  }
-  .play-btn {
-    width: 38px; height: 38px; border-radius: 50%;
-    background: var(--accent); border: none; color: white;
-    font-size: 16px; cursor: pointer; display: flex;
-    align-items: center; justify-content: center;
-    transition: opacity 0.2s; flex-shrink: 0;
-  }
-  .play-btn:hover { opacity: 0.85; }
-  .play-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-  .waveform {
-    flex: 1; height: 40px;
-    display: flex; align-items: center;
-    gap: 2px; overflow: hidden;
-  }
-  .bar {
-    width: 3px; border-radius: 2px;
-    background: var(--accent); opacity: 0.6;
-    transition: height 0.1s;
-  }
-  .bar.active { opacity: 1; animation: pulse 0.8s ease-in-out infinite; }
-  @keyframes pulse {
-    0%,100% { transform: scaleY(0.3); }
-    50% { transform: scaleY(1); }
-  }
-  .player-time {
-    font-size: 11px; color: var(--muted2);
-    font-variant-numeric: tabular-nums; min-width: 60px; text-align: right;
-  }
-  .player-status {
-    font-size: 11px; color: var(--muted2); margin-top: 6px; text-align: center;
-  }
-
-  /* Drag zone */
-  .drag-zone {
-    border: 2px dashed var(--border); border-radius: 10px;
-    padding: 14px; margin-bottom: 12px;
-    display: flex; align-items: center; gap: 12px;
-    cursor: grab; transition: all 0.2s; user-select: none;
-  }
-  .drag-zone:hover, .drag-zone.dragging {
-    border-color: var(--accent); background: rgba(124,106,247,0.05);
-  }
-  .drag-icon { font-size: 26px; flex-shrink: 0; }
-  .drag-info { flex: 1; min-width: 0; }
-  .drag-filename {
-    font-size: 13px; font-weight: 600; color: var(--text);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .drag-hint { font-size: 11px; color: var(--muted2); margin-top: 2px; }
-  .drag-grab-icon { font-size: 18px; color: var(--muted); opacity: 0.6; flex-shrink: 0; }
-  .drag-zone:hover .drag-grab-icon { opacity: 1; color: var(--accent2); }
-
-  .dl-btn {
-    display: block; width: 100%; padding: 8px; text-align: center;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); color: var(--accent2);
-    font-size: 13px; font-weight: 600; text-decoration: none;
-    margin-bottom: 16px; transition: border-color 0.2s; cursor: pointer;
-  }
-  .dl-btn:hover { border-color: var(--accent); color: var(--text); }
-
-  /* Feedback vector */
-  .fb-section { margin-top: 4px; }
-  .fb-header {
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 14px;
-  }
-  .fb-title {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 1.2px; color: var(--muted2);
-  }
-  .fb-subtitle { font-size: 11px; color: var(--muted); margin-top: 2px; }
-
-  .distance-badge {
-    display: none; padding: 4px 10px; border-radius: 20px;
-    font-size: 11px; font-weight: 700;
-    border: 1px solid var(--border); color: var(--muted2);
-  }
-  .distance-badge.visible { display: inline-block; }
-  .distance-badge.great { background: rgba(52,211,153,0.1); border-color: var(--green); color: var(--green); }
-  .distance-badge.ok { background: rgba(124,106,247,0.1); border-color: var(--accent); color: var(--accent2); }
-  .distance-badge.far { background: rgba(251,146,60,0.1); border-color: var(--orange); color: var(--orange); }
-
-  button.send-fb {
-    width: 100%; padding: 12px; margin-top: 12px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); color: var(--text);
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    transition: all 0.15s;
-  }
-  button.send-fb:hover { border-color: var(--accent); }
-  button.send-fb:disabled { opacity: 0.4; cursor: not-allowed; }
-  .understood {
-    margin-top: 8px; font-size: 12px; color: var(--green);
-    min-height: 18px; text-align: center;
-  }
-
-  /* Settings panel */
-  .settings-panel { display: none; }
-  .settings-panel.visible { display: block; }
-  .settings-section { margin-bottom: 16px; }
-  .settings-label {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 1px; color: var(--muted2); margin-bottom: 10px;
-  }
-  .settings-input {
-    width: 100%; background: var(--surface2);
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
-    color: var(--text); font-size: 13px; padding: 10px 12px;
-    outline: none; font-family: inherit; transition: border-color 0.2s;
-    margin-bottom: 8px;
-  }
-  .settings-input:focus { border-color: var(--accent); }
-  .settings-input::placeholder { color: var(--muted); }
-  .settings-btns { display: flex; gap: 8px; }
-  .settings-btn {
-    flex: 1; padding: 9px 12px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); color: var(--text);
-    font-size: 12px; font-weight: 600; cursor: pointer;
-    transition: all 0.15s; text-align: center;
-  }
-  .settings-btn:hover { border-color: var(--accent); }
-  .settings-btn.primary-sm {
-    background: var(--accent); border-color: var(--accent); color: white;
-  }
-  .settings-btn.primary-sm:hover { opacity: 0.85; }
-  .sync-status {
-    font-size: 12px; color: var(--muted2); margin-top: 8px;
-    padding: 8px 10px; background: var(--surface2);
-    border-radius: var(--radius-sm); border: 1px solid var(--border);
-    min-height: 36px; display: flex; align-items: center; gap: 6px;
-  }
-  .sync-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--muted); flex-shrink: 0;
-  }
-  .sync-dot.connected { background: var(--green); }
-  .sync-dot.error { background: var(--red); }
-
-  /* Status bar */
-  .status-bar {
-    position: fixed; bottom: 20px; left: 50%;
-    transform: translateX(-50%) translateY(60px);
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 24px; padding: 9px 20px; font-size: 13px;
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    white-space: nowrap; z-index: 100;
-  }
-  .status-bar.visible { transform: translateX(-50%) translateY(0); }
-  .spinner {
-    display: inline-block; width: 12px; height: 12px;
-    border: 2px solid var(--border); border-top-color: var(--accent2);
-    border-radius: 50%; animation: spin 0.7s linear infinite;
-    vertical-align: middle; margin-right: 5px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* Divider */
-  .divider {
-    width: 100%; max-width: 640px; height: 1px;
-    background: var(--border); margin: 4px 0;
-  }
-
-  /* Main/settings tabs */
-  .tab-bar {
-    display: flex; gap: 0; width: 100%; max-width: 640px;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); overflow: hidden;
-  }
-  .tab {
-    flex: 1; padding: 10px; text-align: center;
-    font-size: 12px; font-weight: 600; cursor: pointer;
-    color: var(--muted2); transition: all 0.15s;
-    border-right: 1px solid var(--border);
-  }
-  .tab:last-child { border-right: none; }
-  .tab:hover { color: var(--text); background: var(--surface2); }
-  .tab.active { background: var(--accent); color: white; }
-
-  /* BPM */
-  .bpm-row { display: flex; align-items: center; gap: 14px; }
-  .bpm-val {
-    font-size: 22px; font-weight: 700;
-    color: var(--accent2); min-width: 52px; text-align: right;
-  }
-  .bpm-val span { font-size: 10px; color: var(--muted2); display: block; text-align: right; }
+  .arp-section { display: none; }
+  .arp-section.visible { display: block; }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="bell-wrap">
-    <button class="bell-btn" onclick="toggleNotifs()" id="bellBtn">🔔<span class="bell-badge" id="bellBadge"></span></button>
-    <div class="notif-panel" id="notifPanel">
-      <div class="notif-header"><span data-i18n="notifications">Уведомления</span><button onclick="clearNotifs()" data-i18n="clear">Очистить</button></div>
-      <div class="notif-list" id="notifList"><div class="notif-empty" data-i18n="noNotifs">Пока пусто</div></div>
-    </div>
-  </div>
-  <h1>🎹 MIDI Gen</h1>
-  <p data-i18n="subtitle">Векторное управление генерацией мелодий</p>
-  <div class="header-actions">
-    <div class="lang-toggle">
-      <button class="lang-btn active" onclick="setLang('ru')">RU</button>
-      <button class="lang-btn" onclick="setLang('en')">EN</button>
-    </div>
-  </div>
+  <h1>MIDI Gen</h1>
+  <span class="version">v2.0</span>
+  <div class="header-spacer"></div>
+  <div class="status-pill" id="statusPill">IDLE</div>
 </header>
 
-<!-- TAB BAR -->
-<div class="tab-bar">
-  <div class="tab active" onclick="showTab('main')" id="tab-main" data-i18n="tabMain">🎵 Генератор</div>
-  <div class="tab" onclick="showTab('settings')" id="tab-settings" data-i18n="tabSettings">⚙️ Профиль</div>
-</div>
+<div class="workspace">
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
 
-<!-- ═══════════════════════════════ MAIN TAB ════════════════════════════════ -->
-<div id="panel-main">
-
-<!-- REQUEST VECTOR -->
-<div class="card">
-  <div class="card-label" data-i18n="requestVector">Запрос <span data-i18n="vectorHint">— задай музыкальное намерение</span></div>
-  <div class="vector-grid three-col" id="reqVectors">
-
-    <div class="axis-block">
-      <div class="axis-header">
-        <div>
-          <div class="axis-label" data-i18n="axisEnergy">Энергия</div>
-          <div class="axis-desc" data-i18n="axisEnergyDesc">интенсивность</div>
+    <!-- HARMONY -->
+    <div class="section">
+      <div class="section-label">Harmony</div>
+      <div class="row">
+        <div class="param">
+          <label>Key</label>
+          <select id="p_key"></select>
         </div>
-        <div class="axis-val" id="req-x-val">0</div>
-      </div>
-      <input type="range" min="-100" max="100" value="0" id="req-x" oninput="updateAxis('req','x')">
-    </div>
-
-    <div class="axis-block">
-      <div class="axis-header">
-        <div>
-          <div class="axis-label" data-i18n="axisJoy">Радость</div>
-          <div class="axis-desc" data-i18n="axisJoyDesc">мажор / минор</div>
+        <div class="param">
+          <label>Mode / Scale</label>
+          <select id="p_mode"></select>
         </div>
-        <div class="axis-val" id="req-y-val">0</div>
       </div>
-      <input type="range" min="-100" max="100" value="0" id="req-y" oninput="updateAxis('req','y')">
-    </div>
-
-    <div class="axis-block">
-      <div class="axis-header">
-        <div>
-          <div class="axis-label" data-i18n="axisComplexity">Сложность</div>
-          <div class="axis-desc" data-i18n="axisComplexityDesc">ритм, вариации</div>
+      <div class="row single">
+        <div class="param">
+          <label>Chord Progression</label>
+          <select id="p_progression"></select>
         </div>
-        <div class="axis-val" id="req-z-val">0</div>
       </div>
-      <input type="range" min="-100" max="100" value="0" id="req-z" oninput="updateAxis('req','z')">
-    </div>
-
-  </div>
-</div>
-
-<!-- BPM + BARS -->
-<div class="card">
-  <div class="card-label">BPM</div>
-  <div class="bpm-row">
-    <input type="range" id="bpmSlider" min="60" max="180" value="120" oninput="updateBpm()">
-    <div class="bpm-val" id="bpmVal">120<span>BPM</span></div>
-  </div>
-  <div style="margin-top:14px;">
-    <div class="card-label" style="margin-bottom:8px;" data-i18n="bars">Такты</div>
-    <div class="toggle-row">
-      <div class="toggle selected" data-group="bars" data-val="8" data-i18n="bars8">8 тактов</div>
-      <div class="toggle" data-group="bars" data-val="16" data-i18n="bars16">16 тактов</div>
-    </div>
-  </div>
-</div>
-
-<button class="primary" id="genBtn" onclick="generate()" data-i18n="generate">Генерировать</button>
-
-<!-- RESULT -->
-<div class="result-card" id="resultCard">
-  <div class="result-inner">
-    <div class="result-meta" id="resultMeta"></div>
-
-    <!-- MIDI Player -->
-    <div class="player-section">
-      <div class="player-label" data-i18n="playerLabel">Плеер</div>
-      <div class="player-controls">
-        <button class="play-btn" id="playBtn" onclick="togglePlay()" title="Play/Stop">▶</button>
-        <div class="waveform" id="waveform"></div>
-        <div class="player-time" id="playerTime">—</div>
-      </div>
-      <div class="player-status" id="playerStatus"></div>
-    </div>
-
-    <!-- Drag zone -->
-    <div class="drag-zone" id="dragZone" onmousedown="onNativeDragStart(event)">
-      <div class="drag-icon">🎵</div>
-      <div class="drag-info">
-        <div class="drag-filename" id="dragFilename">track.mid</div>
-        <div class="drag-hint" data-i18n="dragHint">Перетащи в FL Studio или DAW</div>
-      </div>
-      <div class="drag-grab-icon">⠿</div>
-    </div>
-
-    <a class="dl-btn" id="dlBtn" href="#" download data-i18n="download">⬇ Скачать MIDI</a>
-
-    <!-- FEEDBACK VECTOR -->
-    <div class="fb-section">
-      <div class="fb-header">
-        <div>
-          <div class="fb-title" data-i18n="feedbackVector">Восприятие</div>
-          <div class="fb-subtitle" data-i18n="feedbackVectorHint">Как ты услышал результат?</div>
+      <div class="row">
+        <div class="param">
+          <label>Voicing</label>
+          <select id="p_chord_voicing"></select>
         </div>
-        <div class="distance-badge" id="distanceBadge"></div>
+        <div class="param">
+          <label>Min Interval</label>
+          <input type="number" id="p_chord_min_interval" min="0" max="12" value="0">
+        </div>
       </div>
+    </div>
 
-      <div class="vector-grid three-col" id="fbVectors">
+    <!-- TEMPO & STRUCTURE -->
+    <div class="section">
+      <div class="section-label">Tempo & Structure</div>
+      <div class="row">
+        <div class="param">
+          <label>BPM</label>
+          <input type="number" id="p_bpm" min="40" max="220" value="90">
+        </div>
+        <div class="param">
+          <label>Bars</label>
+          <input type="number" id="p_bars" min="2" max="32" value="8">
+        </div>
+      </div>
+    </div>
 
-        <div class="axis-block">
-          <div class="axis-header">
-            <div>
-              <div class="axis-label" data-i18n="axisEnergy">Энергия</div>
-              <div class="axis-desc" data-i18n="axisEnergyDesc">интенсивность</div>
-            </div>
-            <div class="axis-val" id="fb-x-val">0</div>
+    <!-- MELODY -->
+    <div class="section">
+      <div class="section-label">Melody</div>
+      <div class="row">
+        <div class="param">
+          <label>Rhythm</label>
+          <select id="p_melody_rhythm"></select>
+        </div>
+        <div class="param">
+          <label>Max Jump</label>
+          <input type="number" id="p_melody_max_jump" min="1" max="7" value="3">
+        </div>
+      </div>
+      <div class="param" style="margin-bottom:6px">
+        <label>Chord Tone Prob <span class="val-display" id="v_chord_prob">0.55</span></label>
+        <input type="range" id="p_melody_chord_prob" min="0" max="100" value="55"
+               oninput="document.getElementById('v_chord_prob').textContent=(this.value/100).toFixed(2)">
+      </div>
+      <div class="param" style="margin-bottom:6px">
+        <label>Leap Prob <span class="val-display" id="v_leap_prob">0.10</span></label>
+        <input type="range" id="p_melody_leap_prob" min="0" max="50" value="10"
+               oninput="document.getElementById('v_leap_prob').textContent=(this.value/100).toFixed(2)">
+      </div>
+      <div class="row">
+        <div class="param">
+          <label>Octave Low (MIDI)</label>
+          <input type="number" id="p_melody_octave_lo" min="36" max="72" value="60">
+        </div>
+        <div class="param">
+          <label>Octave High (MIDI)</label>
+          <input type="number" id="p_melody_octave_hi" min="48" max="96" value="84">
+        </div>
+      </div>
+      <div class="row">
+        <div class="param">
+          <label>Velocity</label>
+          <input type="number" id="p_melody_velocity" min="40" max="110" value="82">
+        </div>
+        <div class="param">
+          <label>Vel Variance</label>
+          <input type="number" id="p_melody_vel_var" min="0" max="30" value="12">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <label>Motif Repeat</label>
+        <label class="toggle">
+          <input type="checkbox" id="p_melody_motif_repeat" checked>
+          <div class="toggle-track"></div>
+        </label>
+      </div>
+    </div>
+
+    <!-- CHORDS -->
+    <div class="section">
+      <div class="section-label">Chords</div>
+      <div class="row">
+        <div class="param">
+          <label>Rhythm</label>
+          <select id="p_chord_rhythm"></select>
+        </div>
+        <div class="param">
+          <label>Velocity</label>
+          <input type="number" id="p_chord_velocity" min="20" max="100" value="58">
+        </div>
+      </div>
+    </div>
+
+    <!-- BASS -->
+    <div class="section">
+      <div class="section-label">Bass</div>
+      <div class="row">
+        <div class="param">
+          <label>Pattern</label>
+          <select id="p_bass_pattern"></select>
+        </div>
+        <div class="param">
+          <label>Vel Scale</label>
+          <input type="number" id="p_bass_velocity_scale" min="0.1" max="2" step="0.1" value="1.0">
+        </div>
+      </div>
+    </div>
+
+    <!-- ARPEGGIO -->
+    <div class="section">
+      <div class="section-label">Arpeggio</div>
+      <div class="toggle-row">
+        <label>Enable</label>
+        <label class="toggle">
+          <input type="checkbox" id="p_arp_enabled"
+                 onchange="document.getElementById('arpParams').classList.toggle('visible',this.checked)">
+          <div class="toggle-track"></div>
+        </label>
+      </div>
+      <div class="arp-section" id="arpParams">
+        <div class="row">
+          <div class="param">
+            <label>Pattern</label>
+            <select id="p_arp_pattern"></select>
           </div>
-          <input type="range" min="-100" max="100" value="0" id="fb-x" oninput="updateAxis('fb','x')">
-        </div>
-
-        <div class="axis-block">
-          <div class="axis-header">
-            <div>
-              <div class="axis-label" data-i18n="axisJoy">Радость</div>
-              <div class="axis-desc" data-i18n="axisJoyDesc">мажор / минор</div>
-            </div>
-            <div class="axis-val" id="fb-y-val">0</div>
+          <div class="param">
+            <label>Note Dur</label>
+            <select id="p_arp_note_dur">
+              <option value="60">64th</option>
+              <option value="120">32nd</option>
+              <option value="240" selected>16th</option>
+              <option value="480">8th</option>
+              <option value="960">Quarter</option>
+            </select>
           </div>
-          <input type="range" min="-100" max="100" value="0" id="fb-y" oninput="updateAxis('fb','y')">
         </div>
-
-        <div class="axis-block">
-          <div class="axis-header">
-            <div>
-              <div class="axis-label" data-i18n="axisComplexity">Сложность</div>
-              <div class="axis-desc" data-i18n="axisComplexityDesc">ритм, вариации</div>
-            </div>
-            <div class="axis-val" id="fb-z-val">0</div>
-          </div>
-          <input type="range" min="-100" max="100" value="0" id="fb-z" oninput="updateAxis('fb','z')">
+        <div class="param" style="margin-bottom:6px">
+          <label>Velocity</label>
+          <input type="number" id="p_arp_velocity" min="20" max="110" value="68">
         </div>
-
       </div>
-
-      <button class="send-fb" id="fbSendBtn" onclick="sendVectorFeedback()" data-i18n="sendFeedback">Отправить восприятие</button>
-      <div class="understood" id="understood"></div>
     </div>
 
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <div class="main">
+    <div class="piano-roll-container">
+      <div class="roll-header">
+        <span class="roll-title">Piano Roll</span>
+        <div class="track-tabs" id="trackTabs"></div>
+      </div>
+      <div class="roll-canvas-wrap" id="rollWrap">
+        <div class="roll-placeholder" id="rollPlaceholder">
+          <div class="big">♪</div>
+          <div>Generate a track to see the piano roll</div>
+        </div>
+        <canvas id="rollCanvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Transport -->
+    <div class="transport">
+      <button class="btn btn-generate" id="btnGenerate">Generate</button>
+      <button class="btn btn-play" id="btnPlay" disabled>▶ Play</button>
+      <button class="btn btn-stop" id="btnStop" disabled>■ Stop</button>
+      <div class="progress-bar" id="progressBar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="transport-info" id="transportInfo"></div>
+      <button class="btn btn-download" id="btnDownload" disabled>↓ MIDI</button>
+    </div>
   </div>
 </div>
 
-</div><!-- /panel-main -->
-
-<!-- ═══════════════════════════════ SETTINGS TAB ═══════════════════════════ -->
-<div class="settings-panel card" id="panel-settings">
-
-  <div class="settings-section">
-    <div class="settings-label" data-i18n="settingsProfileTitle">Профиль предпочтений</div>
-    <input class="settings-input" type="url" id="ghRepoUrl"
-      placeholder="https://github.com/user/repo" data-i18n-placeholder="ghRepoPlaceholder">
-    <input class="settings-input" type="password" id="ghToken"
-      placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" data-i18n-placeholder="ghTokenPlaceholder">
-    <div class="settings-btns">
-      <button class="settings-btn primary-sm" onclick="connectGitHub()" data-i18n="connect">Подключить</button>
-      <button class="settings-btn" onclick="checkGitHub()" data-i18n="checkConnection">Проверить</button>
-      <button class="settings-btn" onclick="syncGitHub()" data-i18n="sync">Синхронизировать</button>
-    </div>
-    <div class="sync-status" id="syncStatus">
-      <div class="sync-dot" id="syncDot"></div>
-      <span id="syncStatusText" data-i18n="notConnected">Не подключено</span>
-    </div>
-  </div>
-
-  <div class="settings-section">
-    <div class="settings-label" data-i18n="settingsAbout">О приложении</div>
-    <div style="font-size:12px; color:var(--muted2); line-height:1.7;">
-      <div data-i18n="aboutLine1">MIDI Gen генерирует мелодии через 3D-вектор намерения.</div>
-      <div data-i18n="aboutLine2">Фидбек — второй вектор восприятия. Система учится на разнице.</div>
-      <div style="margin-top:6px; color:var(--muted);" id="versionLine">v1.0.3</div>
-    </div>
-  </div>
-
-</div><!-- /panel-settings -->
-
-<div class="status-bar" id="statusBar"></div>
+<div class="toast" id="toast"></div>
 
 <script>
-// ══════════════════════════════════════════════════════════════════════
-// i18n
-// ══════════════════════════════════════════════════════════════════════
-const STRINGS = {
-  ru: {
-    subtitle:         "Векторное управление генерацией мелодий",
-    tabMain:          "🎵 Генератор",
-    tabSettings:      "⚙️ Профиль",
-    requestVector:    "Запрос",
-    vectorHint:       "— задай музыкальное намерение",
-    axisEnergy:       "Энергия",
-    axisEnergyDesc:   "интенсивность",
-    axisJoy:          "Радость",
-    axisJoyDesc:      "мажор / минор",
-    axisComplexity:   "Сложность",
-    axisComplexityDesc:"ритм, вариации",
-    bars:             "Такты",
-    bars8:            "8 тактов",
-    bars16:           "16 тактов",
-    generate:         "Генерировать",
-    generating:       "Генерирую...",
-    playerLabel:      "Плеер",
-    dragHint:         "Перетащи в FL Studio или DAW",
-    download:         "⬇ Скачать MIDI",
-    feedbackVector:   "Восприятие",
-    feedbackVectorHint:"Как ты услышал результат?",
-    sendFeedback:     "Отправить восприятие",
-    settingsProfileTitle: "Профиль предпочтений",
-    ghRepoPlaceholder:"https://github.com/user/repo",
-    ghTokenPlaceholder:"ghp_xxxxxxxxxxxxxxxxxxxx",
-    connect:          "Подключить",
-    checkConnection:  "Проверить",
-    sync:             "Синхронизировать",
-    notConnected:     "Не подключено",
-    settingsAbout:    "О приложении",
-    aboutLine1:       "MIDI Gen генерирует мелодии через 3D-вектор намерения.",
-    aboutLine2:       "Фидбек — второй вектор восприятия. Система учится на разнице.",
-    notifications:    "Уведомления",
-    clear:            "Очистить",
-    noNotifs:         "Пока пусто",
-    statusOk:         "✅ Готово!",
-    statusDrag:       "🎵 Перетащи файл в FL Studio",
-    distGreat:        "🎯 Попадание",
-    distOk:           "↗ Небольшое расхождение",
-    distFar:          "↗↗ Большое расхождение",
-    playLoading:      "Загрузка плеера...",
-    playError:        "Не удалось загрузить плеер",
-  },
-  en: {
-    subtitle:         "3D-vector melody generation",
-    tabMain:          "🎵 Generator",
-    tabSettings:      "⚙️ Profile",
-    requestVector:    "Request",
-    vectorHint:       "— set your musical intent",
-    axisEnergy:       "Energy",
-    axisEnergyDesc:   "intensity",
-    axisJoy:          "Joy",
-    axisJoyDesc:      "major / minor",
-    axisComplexity:   "Complexity",
-    axisComplexityDesc:"rhythm, variation",
-    bars:             "Bars",
-    bars8:            "8 bars",
-    bars16:           "16 bars",
-    generate:         "Generate",
-    generating:       "Generating...",
-    playerLabel:      "Player",
-    dragHint:         "Drag into FL Studio or your DAW",
-    download:         "⬇ Download MIDI",
-    feedbackVector:   "Perception",
-    feedbackVectorHint:"How did you hear the result?",
-    sendFeedback:     "Send perception",
-    settingsProfileTitle: "Preference Profile",
-    ghRepoPlaceholder:"https://github.com/user/repo",
-    ghTokenPlaceholder:"ghp_xxxxxxxxxxxxxxxxxxxx",
-    connect:          "Connect",
-    checkConnection:  "Check",
-    sync:             "Synchronize",
-    notConnected:     "Not connected",
-    settingsAbout:    "About",
-    aboutLine1:       "MIDI Gen generates melodies via a 3D intent vector.",
-    aboutLine2:       "Feedback is a second perception vector. The system learns from the difference.",
-    notifications:    "Notifications",
-    clear:            "Clear",
-    noNotifs:         "Nothing yet",
-    statusOk:         "✅ Done!",
-    statusDrag:       "🎵 Drag the file into FL Studio",
-    distGreat:        "🎯 Great match",
-    distOk:           "↗ Small gap",
-    distFar:          "↗↗ Large gap",
-    playLoading:      "Loading player...",
-    playError:        "Could not load player",
+// ── Options loader ─────────────────────────────────────────────────────────
+async function loadOptions() {
+  try {
+    const r = await fetch('/options');
+    const opts = await r.json();
+
+    const fill = (id, arr, labels) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      arr.forEach((v, i) => {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = labels ? labels[i] : v;
+        sel.appendChild(o);
+      });
+    };
+
+    fill('p_key', opts.keys);
+    fill('p_mode', opts.modes);
+    fill('p_progression', opts.progressions);
+    fill('p_chord_voicing', opts.chord_voicings);
+    fill('p_melody_rhythm', opts.melody_rhythms);
+    fill('p_chord_rhythm', opts.chord_rhythms);
+    fill('p_bass_pattern', opts.bass_patterns);
+    fill('p_arp_pattern', opts.arp_patterns);
+
+    // Defaults
+    setSelect('p_key', 'C');
+    setSelect('p_mode', 'minor');
+    setSelect('p_progression', 'I-V-vi-IV');
+    setSelect('p_chord_voicing', 'close');
+    setSelect('p_melody_rhythm', 'normal');
+    setSelect('p_chord_rhythm', 'normal');
+    setSelect('p_bass_pattern', 'root_fifth');
+    setSelect('p_arp_pattern', 'up');
+  } catch(e) {
+    console.warn('Could not load options:', e);
   }
+}
+
+function setSelect(id, val) {
+  const s = document.getElementById(id);
+  if (!s) return;
+  [...s.options].forEach(o => { if (o.value === val) o.selected = true; });
+}
+
+function getVal(id) {
+  const el = document.getElementById(id);
+  if (!el) return undefined;
+  if (el.type === 'checkbox') return el.checked;
+  if (el.type === 'range' || el.type === 'number') return parseFloat(el.value);
+  return el.value;
+}
+
+function buildParams() {
+  return {
+    key:                   getVal('p_key'),
+    mode:                  getVal('p_mode'),
+    progression:           getVal('p_progression'),
+    chord_voicing:         getVal('p_chord_voicing'),
+    chord_min_interval:    getVal('p_chord_min_interval'),
+    bpm:                   getVal('p_bpm'),
+    bars:                  getVal('p_bars'),
+    melody_rhythm:         getVal('p_melody_rhythm'),
+    melody_max_jump:       getVal('p_melody_max_jump'),
+    melody_chord_prob:     getVal('p_melody_chord_prob') / 100,
+    melody_leap_prob:      getVal('p_melody_leap_prob') / 100,
+    melody_octave_lo:      getVal('p_melody_octave_lo'),
+    melody_octave_hi:      getVal('p_melody_octave_hi'),
+    melody_motif_repeat:   getVal('p_melody_motif_repeat'),
+    melody_velocity:       getVal('p_melody_velocity'),
+    melody_vel_var:        getVal('p_melody_vel_var'),
+    chord_rhythm:          getVal('p_chord_rhythm'),
+    chord_velocity:        getVal('p_chord_velocity'),
+    bass_pattern:          getVal('p_bass_pattern'),
+    bass_velocity_scale:   getVal('p_bass_velocity_scale'),
+    arp_enabled:           getVal('p_arp_enabled'),
+    arp_pattern:           getVal('p_arp_pattern'),
+    arp_note_dur:          parseInt(document.getElementById('p_arp_note_dur').value),
+    arp_velocity:          getVal('p_arp_velocity'),
+  };
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let currentMusic = null;
+let currentFilePath = null;
+let isPlaying = false;
+let synths = {};
+let scheduledIds = [];
+let playStartTime = 0;
+let totalDuration = 0;
+let animFrame = null;
+let activeTrack = 'melody';
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(msg, color) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.borderColor = color || '';
+  t.style.color = color || '';
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function setStatus(text, cls) {
+  const p = document.getElementById('statusPill');
+  p.textContent = text;
+  p.className = 'status-pill' + (cls ? ' ' + cls : '');
+}
+
+// ── Generate ───────────────────────────────────────────────────────────────
+document.getElementById('btnGenerate').addEventListener('click', async () => {
+  stopPlayback();
+  const btn = document.getElementById('btnGenerate');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  setStatus('GENERATING', 'generating');
+
+  try {
+    const params = buildParams();
+    const r = await fetch('/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(params),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    currentMusic = data.music;
+    currentFilePath = data.file;
+
+    renderRoll(activeTrack);
+    buildTrackTabs(currentMusic.tracks);
+    updateTransportInfo(currentMusic);
+
+    document.getElementById('btnPlay').disabled = false;
+    document.getElementById('btnStop').disabled = false;
+    document.getElementById('btnDownload').disabled = false;
+    document.getElementById('rollPlaceholder').style.display = 'none';
+    setStatus('READY', '');
+    showToast(`${currentMusic.key} ${currentMusic.mode} · ${currentMusic.bpm} BPM`, 'var(--accent2)');
+  } catch(e) {
+    showToast('Error: ' + e.message, 'var(--red)');
+    setStatus('ERROR', '');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+  }
+});
+
+// ── Track tabs ─────────────────────────────────────────────────────────────
+function buildTrackTabs(tracks) {
+  const container = document.getElementById('trackTabs');
+  container.innerHTML = '';
+  const labels = {melody: 'Melody', chord_track: 'Chords', bass: 'Bass', arp: 'Arp'};
+  Object.keys(tracks).forEach(k => {
+    if (!tracks[k] || !tracks[k].length) return;
+    const btn = document.createElement('button');
+    btn.className = 'track-tab' + (k === activeTrack ? ' active' : '');
+    btn.textContent = labels[k] || k;
+    btn.onclick = () => {
+      activeTrack = k;
+      document.querySelectorAll('.track-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderRoll(k);
+    };
+    container.appendChild(btn);
+  });
+}
+
+function updateTransportInfo(music) {
+  document.getElementById('transportInfo').innerHTML =
+    `<span class="info-chip">Key <span>${music.key} ${music.mode}</span></span>` +
+    `<span class="info-chip">BPM <span>${music.bpm}</span></span>` +
+    `<span class="info-chip">Prog <span>${document.getElementById('p_progression').value}</span></span>`;
+}
+
+// ── Piano Roll renderer ────────────────────────────────────────────────────
+const ROLL_COLORS = {
+  melody:      '#7c5cfc',
+  chord_track: '#4ade80',
+  bass:        '#fbbf24',
+  arp:         '#c084fc',
 };
 
-let lang = localStorage.getItem('midi_lang') || 'ru';
-function t(k) { return STRINGS[lang][k] || STRINGS.ru[k] || k; }
-function setLang(l) {
-  lang = l; localStorage.setItem('midi_lang', l);
-  document.querySelectorAll('.lang-btn').forEach(b =>
-    b.classList.toggle('active', b.textContent === l.toUpperCase()));
-  applyLang();
-}
-function applyLang() {
-  document.querySelectorAll('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n));
-  document.querySelectorAll('[data-i18n-placeholder]').forEach(el =>
-    el.placeholder = t(el.dataset.i18nPlaceholder));
-  const btn = document.getElementById('genBtn');
-  if (btn.disabled) btn.textContent = t('generating');
-}
+function renderRoll(trackKey) {
+  if (!currentMusic) return;
+  const track = currentMusic.tracks[trackKey];
+  if (!track || !track.length) return;
 
-// ══════════════════════════════════════════════════════════════════════
-// Tabs
-// ══════════════════════════════════════════════════════════════════════
-function showTab(tab) {
-  document.getElementById('panel-main').style.display = tab === 'main' ? '' : 'none';
-  document.getElementById('panel-settings').style.display = tab === 'settings' ? '' : 'none';
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-' + tab).classList.add('active');
-}
-// Initial: hide settings panel (it has .settings-panel not display:none)
-document.getElementById('panel-settings').style.display = 'none';
+  const wrap = document.getElementById('rollWrap');
+  const canvas = document.getElementById('rollCanvas');
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+  canvas.width = W;
+  canvas.height = H;
 
-// ══════════════════════════════════════════════════════════════════════
-// Axis sliders
-// ══════════════════════════════════════════════════════════════════════
-function updateAxis(prefix, axis) {
-  const val = parseInt(document.getElementById(`${prefix}-${axis}`).value);
-  const el = document.getElementById(`${prefix}-${axis}-val`);
-  el.textContent = (val > 0 ? '+' : '') + val;
-  el.className = 'axis-val' + (val > 0 ? ' positive' : val < 0 ? ' negative' : '');
-  if (prefix === 'fb') updateDistance();
-}
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0e0e12';
+  ctx.fillRect(0, 0, W, H);
 
-function getVector(prefix) {
-  return {
-    x: parseInt(document.getElementById(`${prefix}-x`).value),
-    y: parseInt(document.getElementById(`${prefix}-y`).value),
-    z: parseInt(document.getElementById(`${prefix}-z`).value),
-  };
-}
+  // Collect all notes to determine range
+  const tpb = currentMusic.tpb;
+  let minNote = 127, maxNote = 0, totalTicks = 0;
 
-function vectorDistance(a, b) {
-  return Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2 + (a.z-b.z)**2);
-}
-
-function updateDistance() {
-  if (!lastMusic) return;
-  const req = getVector('req');
-  const fb = getVector('fb');
-  const dist = vectorDistance(req, fb);
-  const maxDist = Math.sqrt(3) * 200; // max possible ~346
-  const pct = dist / maxDist;
-  const badge = document.getElementById('distanceBadge');
-  badge.classList.add('visible');
-  if (pct < 0.15) { badge.textContent = t('distGreat'); badge.className = 'distance-badge visible great'; }
-  else if (pct < 0.35) { badge.textContent = t('distOk'); badge.className = 'distance-badge visible ok'; }
-  else { badge.textContent = t('distFar'); badge.className = 'distance-badge visible far'; }
-}
-
-// Toggles
-document.querySelectorAll('.toggle').forEach(el => {
-  el.addEventListener('click', () => {
-    const group = el.dataset.group;
-    document.querySelectorAll(`.toggle[data-group="${group}"]`).forEach(t => t.classList.remove('selected'));
-    el.classList.add('selected');
+  // Build timeline of notes with absolute tick positions
+  const noteEvents = [];
+  let tick = 0;
+  track.forEach(ev => {
+    const notes = ev.notes !== undefined ? ev.notes : (ev.note !== undefined ? [ev.note] : []);
+    const dur = ev.duration;
+    const vel = ev.velocity;
+    if (vel > 0 && notes.length > 0) {
+      notes.forEach(n => {
+        if (n > 0) {
+          noteEvents.push({tick, note: n, dur, vel});
+          if (n < minNote) minNote = n;
+          if (n > maxNote) maxNote = n;
+        }
+      });
+    }
+    tick += dur;
   });
-});
-function getVal(group) {
-  const el = document.querySelector(`[data-group="${group}"].selected`);
-  return el ? el.dataset.val : null;
-}
+  totalTicks = tick;
 
-function updateBpm() {
-  const v = document.getElementById('bpmSlider').value;
-  document.getElementById('bpmVal').innerHTML = v + '<span>BPM</span>';
-}
+  if (!noteEvents.length) return;
 
-// ══════════════════════════════════════════════════════════════════════
-// Notifications
-// ══════════════════════════════════════════════════════════════════════
-const notifications = []; let unreadCount = 0; let notifOpen = false;
-function pushNotif(icon, text) {
-  const time = new Date().toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
-  notifications.unshift({ icon, text, time, unread: true });
-  if (notifications.length > 50) notifications.pop();
-  unreadCount++; renderNotifs();
-}
-function renderNotifs() {
-  const list = document.getElementById('notifList');
-  const badge = document.getElementById('bellBadge');
-  badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
-  badge.style.display = unreadCount > 0 ? 'inline' : 'none';
-  list.innerHTML = notifications.length === 0
-    ? `<div class="notif-empty">${t('noNotifs')}</div>`
-    : notifications.map(n => `<div class="notif-item ${n.unread?'unread':''}"><span>${n.icon}</span> ${n.text}<div class="notif-time">${n.time}</div></div>`).join('');
-}
-function toggleNotifs() {
-  notifOpen = !notifOpen;
-  document.getElementById('notifPanel').classList.toggle('open', notifOpen);
-  if (notifOpen) { notifications.forEach(n => n.unread = false); unreadCount = 0; renderNotifs(); }
-}
-function clearNotifs() { notifications.length = 0; unreadCount = 0; renderNotifs(); }
-document.addEventListener('click', e => {
-  if (notifOpen && !document.getElementById('bellBtn').contains(e.target) &&
-      !document.getElementById('notifPanel').contains(e.target)) {
-    notifOpen = false; document.getElementById('notifPanel').classList.remove('open');
+  // Grid lines (bar lines)
+  const ticksPerBar = tpb * 4;
+  const bars = Math.ceil(totalTicks / ticksPerBar);
+
+  // Piano keys on left
+  const PIANO_W = 28;
+  const noteRange = Math.max(maxNote - minNote + 4, 12);
+  const noteH = Math.max(4, Math.floor((H - 20) / noteRange));
+  const rollW = W - PIANO_W;
+
+  // Draw grid
+  ctx.fillStyle = '#13131b';
+  ctx.fillRect(PIANO_W, 0, rollW, H);
+
+  for (let b = 0; b <= bars; b++) {
+    const x = PIANO_W + (b / bars) * rollW;
+    ctx.strokeStyle = b === 0 ? '#3a3a50' : '#1e1e28';
+    ctx.lineWidth = b % 4 === 0 ? 1.5 : 0.5;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
-});
 
-// ══════════════════════════════════════════════════════════════════════
-// Status bar
-// ══════════════════════════════════════════════════════════════════════
-function showStatus(msg, duration = 3000) {
-  const bar = document.getElementById('statusBar');
-  bar.innerHTML = msg; bar.classList.add('visible');
-  if (duration > 0) setTimeout(() => bar.classList.remove('visible'), duration);
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// Waveform
-// ══════════════════════════════════════════════════════════════════════
-function buildWaveform(playing = false) {
-  const wf = document.getElementById('waveform');
-  wf.innerHTML = '';
-  const count = 48;
-  for (let i = 0; i < count; i++) {
-    const bar = document.createElement('div');
-    bar.className = 'bar' + (playing ? ' active' : '');
-    const h = 6 + Math.random() * 28;
-    bar.style.height = h + 'px';
-    bar.style.flex = '1';
-    if (playing) bar.style.animationDelay = (Math.random() * 0.8) + 's';
-    wf.appendChild(bar);
+  // Beat grid
+  for (let b = 0; b <= bars * 4; b++) {
+    const x = PIANO_W + (b / (bars * 4)) * rollW;
+    ctx.strokeStyle = '#181820';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
-}
 
-// ══════════════════════════════════════════════════════════════════════
-// MIDI Player (via MIDI.js / html-midi-player)
-// ══════════════════════════════════════════════════════════════════════
-let playerEl = null;
-let isPlaying = false;
-let playerReady = false;
+  // Horizontal note lanes
+  for (let i = 0; i < noteRange; i++) {
+    const n = maxNote + 2 - i;
+    const y = i * noteH;
+    const isBlack = [1,3,6,8,10].includes(n % 12);
+    ctx.fillStyle = isBlack ? '#111118' : '#14141c';
+    ctx.fillRect(PIANO_W, y, rollW, noteH);
+    if (i > 0) {
+      ctx.strokeStyle = '#1a1a24';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(PIANO_W, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+  }
 
-function initPlayer() {
-  // Use @magenta/midi-player or html-midi-player from CDN
-  // We'll use Tone.js + midi parsing via CDN
-  return new Promise((resolve) => {
-    if (playerReady) { resolve(true); return; }
-    document.getElementById('playerStatus').textContent = t('playLoading');
-    // Dynamically load Tone.js and @tonejs/midi
-    const scripts = [
-      'https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js',
-    ];
-    let loaded = 0;
-    function onLoad() {
-      loaded++;
-      if (loaded === scripts.length) {
-        // Also load @tonejs/midi via unpkg
-        const s2 = document.createElement('script');
-        s2.src = 'https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js';
-        s2.onload = () => {
-          playerReady = true;
-          document.getElementById('playerStatus').textContent = '';
-          resolve(true);
-        };
-        s2.onerror = () => {
-          document.getElementById('playerStatus').textContent = t('playError');
-          resolve(false);
-        };
-        document.head.appendChild(s2);
+  // Draw notes
+  const color = ROLL_COLORS[trackKey] || '#7c5cfc';
+  noteEvents.forEach(ev => {
+    const x = PIANO_W + (ev.tick / totalTicks) * rollW;
+    const noteRow = maxNote + 2 - ev.note;
+    const y = noteRow * noteH;
+    const noteW = Math.max(2, (ev.dur / totalTicks) * rollW - 1);
+    const alpha = 0.5 + (ev.vel / 127) * 0.5;
+
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x, y + 1, noteW, noteH - 2, 2);
+    ctx.fill();
+
+    // Highlight top edge
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x, y + 1, noteW, 1);
+  });
+  ctx.globalAlpha = 1;
+
+  // Piano keys on left
+  for (let i = 0; i < noteRange; i++) {
+    const n = maxNote + 2 - i;
+    const y = i * noteH;
+    const isBlack = [1,3,6,8,10].includes(n % 12);
+    ctx.fillStyle = isBlack ? '#1a1a26' : '#2d2d40';
+    ctx.fillRect(0, y + 0.5, PIANO_W - 1, noteH - 1);
+    if (noteH >= 8) {
+      const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+      if (n % 12 === 0) {
+        ctx.fillStyle = '#6b6b88';
+        ctx.font = '7px monospace';
+        ctx.fillText('C' + Math.floor(n / 12 - 1), 2, y + noteH - 2);
       }
     }
-    scripts.forEach(src => {
-      if (document.querySelector(`script[src="${src}"]`)) { onLoad(); return; }
-      const s = document.createElement('script');
-      s.src = src; s.onload = onLoad;
-      s.onerror = () => { document.getElementById('playerStatus').textContent = t('playError'); resolve(false); };
-      document.head.appendChild(s);
+  }
+
+  // Playhead
+  canvas._noteEvents = noteEvents;
+  canvas._totalTicks = totalTicks;
+  canvas._noteH = noteH;
+  canvas._maxNote = maxNote;
+  canvas._noteRange = noteRange;
+  canvas._pianoW = PIANO_W;
+  canvas._rollW = rollW;
+}
+
+function drawPlayhead(progress) {
+  const canvas = document.getElementById('rollCanvas');
+  if (!canvas._totalTicks) return;
+  const ctx = canvas.getContext('2d');
+  // Re-render is expensive; just draw a line overlay
+  const x = canvas._pianoW + progress * canvas._rollW;
+  ctx.strokeStyle = '#ff4466';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, canvas.height);
+  ctx.stroke();
+}
+
+// ── Tone.js Piano Synth ────────────────────────────────────────────────────
+function makePianoSynth() {
+  // Layered synth to approximate piano: fast attack, medium decay, slight reverb
+  const synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'triangle' },
+    envelope: {
+      attack: 0.005,
+      decay: 0.3,
+      sustain: 0.2,
+      release: 0.8,
+    },
+    volume: -6,
+  });
+  const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.18 });
+  const limiter = new Tone.Limiter(-3);
+  synth.connect(reverb);
+  reverb.connect(limiter);
+  limiter.toDestination();
+  return synth;
+}
+
+function makeBassSynth() {
+  const synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'sine' },
+    envelope: { attack: 0.01, decay: 0.4, sustain: 0.3, release: 0.6 },
+    volume: -4,
+  });
+  synth.toDestination();
+  return synth;
+}
+
+function makeChordSynth() {
+  const synth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: 'triangle8' },
+    envelope: { attack: 0.02, decay: 0.5, sustain: 0.15, release: 1.2 },
+    volume: -12,
+  });
+  const reverb = new Tone.Reverb({ decay: 2, wet: 0.3 });
+  synth.connect(reverb);
+  reverb.toDestination();
+  return synth;
+}
+
+function midiToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function ticksToSeconds(ticks, bpm, tpb) {
+  return (ticks / tpb) * (60 / bpm);
+}
+
+// ── Playback ───────────────────────────────────────────────────────────────
+async function startPlayback() {
+  if (!currentMusic) return;
+  await Tone.start();
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+
+  // Dispose old synths
+  Object.values(synths).forEach(s => { try { s.dispose(); } catch(e){} });
+  synths = {
+    melody: makePianoSynth(),
+    chord_track: makeChordSynth(),
+    bass: makeBassSynth(),
+    arp: makePianoSynth(),
+  };
+
+  const { tracks, bpm, tpb } = currentMusic;
+  Tone.Transport.bpm.value = bpm;
+
+  totalDuration = 0;
+
+  // Schedule each track
+  Object.entries(tracks).forEach(([trackKey, track]) => {
+    if (!track || !track.length) return;
+    const synth = synths[trackKey];
+    if (!synth) return;
+
+    let tick = 0;
+    track.forEach(ev => {
+      const notes = ev.notes !== undefined ? ev.notes : (ev.note !== undefined ? [ev.note] : []);
+      const dur = ev.duration;
+      const vel = ev.velocity;
+      const startSec = ticksToSeconds(tick, bpm, tpb);
+      const durSec = ticksToSeconds(dur, bpm, tpb);
+
+      if (vel > 0 && notes.length > 0) {
+        const freqs = notes.filter(n => n > 0).map(midiToFreq);
+        if (freqs.length > 0) {
+          const id = Tone.Transport.schedule(time => {
+            synth.triggerAttackRelease(freqs, durSec * 0.92, time, vel / 127);
+          }, startSec);
+          scheduledIds.push(id);
+        }
+      }
+      tick += dur;
+      const endSec = ticksToSeconds(tick, bpm, tpb);
+      if (endSec > totalDuration) totalDuration = endSec;
     });
   });
-}
 
-let midiPart = null;
-let startTime = 0;
-let midiDuration = 0;
-let timerInterval = null;
-
-async function togglePlay() {
-  if (!lastFilePath) return;
-  const btn = document.getElementById('playBtn');
-
-  if (isPlaying) {
-    stopMidi();
-    return;
-  }
-
-  const ok = await initPlayer();
-  if (!ok) return;
-
-  btn.disabled = true;
-  try {
-    // Fetch midi file
-    const url = '/download?path=' + encodeURIComponent(lastFilePath);
-    const resp = await fetch(url);
-    const buf = await resp.arrayBuffer();
-
-    await Tone.start();
-
-    const midi = new Midi(buf);
-    midiDuration = midi.duration;
-
-    // Stop any existing
+  // Schedule stop
+  const stopId = Tone.Transport.schedule(() => {
     Tone.Transport.stop();
-    Tone.Transport.cancel();
-    if (midiPart) { midiPart.dispose(); midiPart = null; }
+    isPlaying = false;
+    setStatus('READY', '');
+    document.getElementById('btnPlay').textContent = '▶ Play';
+    document.getElementById('progressFill').style.width = '0%';
+  }, totalDuration + 0.5);
+  scheduledIds.push(stopId);
 
-    // Simple piano synth
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'triangle' },
-      envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.8 },
-      volume: -8,
-    }).toDestination();
+  playStartTime = Tone.now();
+  Tone.Transport.start();
+  isPlaying = true;
+  setStatus('PLAYING', 'playing');
+  document.getElementById('btnPlay').textContent = '‖ Pause';
 
-    const notes = [];
-    midi.tracks.forEach(track => {
-      track.notes.forEach(note => {
-        notes.push({ time: note.time, midi: note.midi, duration: note.duration, velocity: note.velocity });
-      });
-    });
-
-    midiPart = new Tone.Part((time, note) => {
-      synth.triggerAttackRelease(
-        Tone.Frequency(note.midi, 'midi').toFrequency(),
-        note.duration,
-        time,
-        note.velocity
-      );
-    }, notes);
-
-    midiPart.start(0);
-    Tone.Transport.start();
-    isPlaying = true;
-    startTime = Date.now();
-
-    btn.textContent = '⏹';
-    btn.disabled = false;
-    buildWaveform(true);
-
-    timerInterval = setInterval(() => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const remaining = Math.max(0, midiDuration - elapsed);
-      document.getElementById('playerTime').textContent =
-        fmtTime(elapsed) + ' / ' + fmtTime(midiDuration);
-      if (elapsed >= midiDuration + 0.5) { stopMidi(); }
-    }, 200);
-
-    // Auto-stop
-    setTimeout(() => { if (isPlaying) stopMidi(); }, (midiDuration + 1) * 1000);
-
-  } catch (e) {
-    console.error(e);
-    document.getElementById('playerStatus').textContent = t('playError');
-    btn.disabled = false;
+  // Animate progress + playhead
+  function animate() {
+    if (!isPlaying) return;
+    const elapsed = Tone.Transport.seconds;
+    const progress = Math.min(1, elapsed / totalDuration);
+    document.getElementById('progressFill').style.width = (progress * 100) + '%';
+    renderRoll(activeTrack);
+    drawPlayhead(progress);
+    animFrame = requestAnimationFrame(animate);
   }
+  cancelAnimationFrame(animFrame);
+  animate();
 }
 
-function stopMidi() {
+function stopPlayback() {
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  scheduledIds = [];
   isPlaying = false;
-  try { Tone.Transport.stop(); Tone.Transport.cancel(); } catch(e){}
-  if (midiPart) { try { midiPart.dispose(); } catch(e){} midiPart = null; }
-  clearInterval(timerInterval);
-  document.getElementById('playBtn').textContent = '▶';
-  document.getElementById('playBtn').disabled = false;
-  buildWaveform(false);
-  document.getElementById('playerTime').textContent = fmtTime(midiDuration);
+  cancelAnimationFrame(animFrame);
+  document.getElementById('btnPlay').textContent = '▶ Play';
+  document.getElementById('progressFill').style.width = '0%';
+  setStatus('READY', '');
+  if (currentMusic) renderRoll(activeTrack);
 }
 
-function fmtTime(s) {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${String(sec).padStart(2,'0')}`;
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// Drag & Drop (Electron native)
-// ══════════════════════════════════════════════════════════════════════
-function onNativeDragStart(e) {
-  if (!lastFilePath || e.button !== 0) return;
-  const zone = document.getElementById('dragZone');
-  zone.classList.add('dragging');
-  const startX = e.clientX, startY = e.clientY;
-  function onMouseMove(mv) {
-    if (Math.sqrt((mv.clientX-startX)**2 + (mv.clientY-startY)**2) > 4) {
-      cleanup();
-      if (window.electronAPI) window.electronAPI.startDrag(lastFilePath);
-      showStatus(t('statusDrag'));
-    }
+document.getElementById('btnPlay').addEventListener('click', async () => {
+  if (isPlaying) {
+    stopPlayback();
+  } else {
+    await startPlayback();
   }
-  function onMouseUp() { cleanup(); }
-  function cleanup() {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
-    zone.classList.remove('dragging');
+});
+
+document.getElementById('btnStop').addEventListener('click', stopPlayback);
+
+// ── Download ───────────────────────────────────────────────────────────────
+document.getElementById('btnDownload').addEventListener('click', () => {
+  if (!currentFilePath) return;
+  const a = document.createElement('a');
+  a.href = '/download?path=' + encodeURIComponent(currentFilePath);
+  a.download = '';
+  a.click();
+});
+
+// ── Drag to DAW ────────────────────────────────────────────────────────────
+document.getElementById('btnDownload').addEventListener('dragstart', e => {
+  if (currentFilePath && window.electronAPI) {
+    e.preventDefault();
+    window.electronAPI.startDrag(currentFilePath);
   }
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
-}
+});
+document.getElementById('btnDownload').draggable = true;
 
-// ══════════════════════════════════════════════════════════════════════
-// State
-// ══════════════════════════════════════════════════════════════════════
-let lastMusic = null;
-let lastFilePath = null;
+// ── Resize canvas on window resize ────────────────────────────────────────
+window.addEventListener('resize', () => {
+  if (currentMusic) renderRoll(activeTrack);
+});
 
-// ══════════════════════════════════════════════════════════════════════
-// Generate
-// ══════════════════════════════════════════════════════════════════════
-async function generate() {
-  const vec = getVector('req');
-  const bpm = parseInt(document.getElementById('bpmSlider').value);
-  const bars = parseInt(getVal('bars'));
-
-  const btn = document.getElementById('genBtn');
-  btn.disabled = true;
-  btn.textContent = t('generating');
-  showStatus('<span class="spinner"></span>' + t('generating'), 0);
-  document.getElementById('understood').textContent = '';
-  document.getElementById('distanceBadge').classList.remove('visible');
-
-  // Stop player if running
-  if (isPlaying) stopMidi();
-
-  try {
-    const res = await fetch('/generate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ energy: vec.x, joy: vec.y, complexity: vec.z, bpm, bars })
-    });
-    const data = await res.json();
-    lastMusic = data.music;
-    lastFilePath = data.file;
-
-    // Meta tags
-    document.getElementById('resultMeta').innerHTML = `
-      <span class="tag">🎵 ${data.music.key} ${data.music.mode}</span>
-      <span class="tag bpm">♩ ${data.music.bpm} BPM</span>
-      <span class="tag">⚡${vec.x > 0 ? '+' : ''}${vec.x} 😊${vec.y > 0 ? '+' : ''}${vec.y} 🌀${vec.z > 0 ? '+' : ''}${vec.z}</span>
-    `;
-
-    // Drag zone
-    const filename = data.file.split(/[/\\]/).pop();
-    document.getElementById('dragFilename').textContent = filename;
-
-    // Download button
-    const dlBtn = document.getElementById('dlBtn');
-    dlBtn.href = '/download?path=' + encodeURIComponent(data.file);
-    dlBtn.download = filename;
-    dlBtn.textContent = t('download');
-
-    // Reset player
-    document.getElementById('playBtn').textContent = '▶';
-    document.getElementById('playerTime').textContent = '—';
-    document.getElementById('playerStatus').textContent = '';
-
-    buildWaveform(false);
-    document.getElementById('resultCard').classList.add('visible');
-    showStatus(t('statusOk'));
-    pushNotif('🎵', `${data.music.key} ${data.music.mode}, ${data.music.bpm} BPM`);
-
-    // Reset feedback vector
-    ['x','y','z'].forEach(a => {
-      document.getElementById(`fb-${a}`).value = 0;
-      updateAxis('fb', a);
-    });
-
-  } catch(e) {
-    showStatus('❌ ' + e.message);
-    pushNotif('❌', e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = t('generate');
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// Vector Feedback
-// ══════════════════════════════════════════════════════════════════════
-async function sendVectorFeedback() {
-  if (!lastMusic) return;
-  const req = getVector('req');
-  const fb = getVector('fb');
-  const dist = vectorDistance(req, fb);
-
-  document.getElementById('understood').textContent = '...';
-  const btn = document.getElementById('fbSendBtn');
-  btn.disabled = true;
-
-  try {
-    const res = await fetch('/feedback_vector', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        key: lastMusic.key,
-        mode: lastMusic.mode,
-        request_vector: req,
-        perception_vector: fb,
-        distance: dist,
-      })
-    });
-    const data = await res.json();
-    document.getElementById('understood').textContent = '✨ ' + (data.understood || 'Записано');
-    pushNotif('📊', `Фидбек: расстояние ${Math.round(dist)}`);
-  } catch(e) {
-    document.getElementById('understood').textContent = '❌ ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// GitHub Profile
-// ══════════════════════════════════════════════════════════════════════
-function getGhConfig() {
-  return {
-    url: document.getElementById('ghRepoUrl').value.trim(),
-    token: document.getElementById('ghToken').value.trim(),
-  };
-}
-function setSyncStatus(connected, msg) {
-  document.getElementById('syncDot').className = 'sync-dot' + (connected === true ? ' connected' : connected === false ? ' error' : '');
-  document.getElementById('syncStatusText').textContent = msg;
-}
-
-async function connectGitHub() {
-  const cfg = getGhConfig();
-  if (!cfg.url || !cfg.token) { setSyncStatus(false, 'Заполни URL и токен'); return; }
-  setSyncStatus(null, '⏳ Подключение...');
-  try {
-    const res = await fetch('/github/connect', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(cfg)
-    });
-    const data = await res.json();
-    if (data.ok) {
-      localStorage.setItem('gh_repo', cfg.url);
-      setSyncStatus(true, '✅ ' + (data.message || 'Подключено'));
-    } else {
-      setSyncStatus(false, '❌ ' + (data.error || 'Ошибка'));
-    }
-  } catch(e) { setSyncStatus(false, '❌ ' + e.message); }
-}
-
-async function checkGitHub() {
-  setSyncStatus(null, '⏳ Проверка...');
-  try {
-    const res = await fetch('/github/status');
-    const data = await res.json();
-    setSyncStatus(data.connected, data.connected ? '✅ ' + (data.message || 'Подключено') : '❌ Не подключено');
-  } catch(e) { setSyncStatus(false, '❌ ' + e.message); }
-}
-
-async function syncGitHub() {
-  setSyncStatus(null, '⏳ Синхронизация...');
-  try {
-    const res = await fetch('/github/sync', { method: 'POST' });
-    const data = await res.json();
-    setSyncStatus(data.ok, data.ok ? '✅ ' + (data.message || 'Синхронизировано') : '❌ ' + (data.error || 'Ошибка'));
-  } catch(e) { setSyncStatus(false, '❌ ' + e.message); }
-}
-
-// Restore GitHub settings
-const savedRepo = localStorage.getItem('gh_repo');
-if (savedRepo) document.getElementById('ghRepoUrl').value = savedRepo;
-
-// ══════════════════════════════════════════════════════════════════════
-// Init
-// ══════════════════════════════════════════════════════════════════════
-setLang(lang);
-
-// Wait for backend
-(function waitForBackend() {
-  const btn = document.getElementById('genBtn');
-  btn.disabled = true;
-  btn.textContent = '⏳ Запуск...';
-  showStatus('<span class="spinner"></span> Запуск бэкенда...', 0);
-  function check() {
-    fetch('/').then(r => {
-      if (r.ok) {
-        btn.disabled = false;
-        setLang(lang);
-        showStatus('');
-        // Check GitHub status on load
-        fetch('/github/status').then(r2 => r2.json()).then(d => {
-          if (d.connected) setSyncStatus(true, '✅ ' + (d.message || 'Подключено'));
-        }).catch(() => {});
-      } else setTimeout(check, 1000);
-    }).catch(() => setTimeout(check, 1000));
-  }
-  check();
-})();
+// ── Init ───────────────────────────────────────────────────────────────────
+loadOptions();
 </script>
 </body>
 </html>

@@ -1041,19 +1041,19 @@ async function startPlayback() {
     });
   });
 
-  // Schedule stop or loop
+  // Native transport loop — zero-gap when enabled
+  Tone.Transport.loop = loopEnabled;
+  Tone.Transport.loopStart = 0;
+  Tone.Transport.loopEnd = totalDuration;
+
+  // Schedule stop (only fires when loop is off)
   const stopId = Tone.Transport.schedule(() => {
-    if (loopEnabled) {
-      startPlayback();
-    } else {
-      Tone.Transport.stop();
-      isPlaying = false;
-      setStatus('READY', '');
-      document.getElementById('btnPlay').textContent = '▶ Play';
-      document.getElementById('progressFill').style.width = '0%';
-    }
-  }, totalDuration + 0.5);
-  scheduledIds.push(stopId);
+    Tone.Transport.stop();
+    isPlaying = false;
+    setStatus('READY', '');
+    document.getElementById('btnPlay').textContent = '▶ Play';
+    document.getElementById('progressFill').style.width = '0%';
+  }, totalDuration);
 
   playStartTime = Tone.now();
   Tone.Transport.start();

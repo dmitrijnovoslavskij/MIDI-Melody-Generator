@@ -149,10 +149,11 @@ def _make_rhythm(style: str, bar_ticks=WHOLE) -> list:
     if style == "eighth":
         return [(EIGHTH, False)] * 8
     if style == "dotted":
-        return [(DOTTED_Q, False), (EIGHTH, False), (QUARTER, False), (HALF, False)]
+        # 720 + 240 + 720 + 240 = 1920
+        return [(DOTTED_Q, False), (EIGHTH, False), (DOTTED_Q, False), (EIGHTH, False)]
     if style == "syncopated":
-        return [(EIGHTH, True), (DOTTED_Q, False), (EIGHTH, False),
-                (DOTTED_Q, False), (EIGHTH, False)]
+        # 240 + 720 + 720 + 240 = 1920
+        return [(EIGHTH, True), (DOTTED_Q, False), (DOTTED_Q, False), (EIGHTH, False)]
     if style == "mixed":
         atoms = [SIXTEENTH, EIGHTH, DOTTED_E, QUARTER, DOTTED_Q, HALF]
         weights = [0.05, 0.20, 0.15, 0.30, 0.15, 0.15]

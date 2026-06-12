@@ -39,6 +39,7 @@ class GenerateRequest(BaseModel):
     melody_motif_repeat: bool = True
     melody_velocity:    int   = 82
     melody_vel_var:     int   = 12
+    use_llm:            bool  = True  # Новый флаг для гибрида
     # Chords
     chord_rhythm:       str   = "normal"
     chord_velocity:     int   = 58
@@ -68,6 +69,7 @@ def generate(req: GenerateRequest):
         melody_motif_repeat=req.melody_motif_repeat,
         melody_velocity=req.melody_velocity,
         melody_vel_var=req.melody_vel_var,
+        use_llm=req.use_llm,
         chord_rhythm=req.chord_rhythm,
         chord_velocity=req.chord_velocity,
         bass_pattern=req.bass_pattern,

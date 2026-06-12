@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MIDI Gen</title>
+<title>MIDI Gen (Hybrid)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <style>
   :root {
@@ -393,16 +393,14 @@
 
 <header>
   <h1>MIDI Gen</h1>
-  <span class="version">v2.0</span>
+  <span class="version">v2.1 Hybrid</span>
   <div class="header-spacer"></div>
   <div class="status-pill" id="statusPill">IDLE</div>
 </header>
 
 <div class="workspace">
-  <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
 
-    <!-- HARMONY -->
     <div class="section">
       <div class="section-label">Harmony</div>
       <div class="row">
@@ -433,7 +431,6 @@
       </div>
     </div>
 
-    <!-- TEMPO & STRUCTURE -->
     <div class="section">
       <div class="section-label">Tempo & Structure</div>
       <div class="row">
@@ -448,9 +445,17 @@
       </div>
     </div>
 
-    <!-- MELODY -->
     <div class="section">
       <div class="section-label">Melody</div>
+      
+      <div class="toggle-row">
+        <label>Use LLM (Ollama)</label>
+        <label class="toggle">
+          <input type="checkbox" id="p_use_llm" checked>
+          <div class="toggle-track"></div>
+        </label>
+      </div>
+
       <div class="row">
         <div class="param">
           <label>Rhythm</label>
@@ -500,7 +505,6 @@
       </div>
     </div>
 
-    <!-- CHORDS -->
     <div class="section">
       <div class="section-label">Chords</div>
       <div class="row">
@@ -515,7 +519,6 @@
       </div>
     </div>
 
-    <!-- BASS -->
     <div class="section">
       <div class="section-label">Bass</div>
       <div class="row">
@@ -530,7 +533,6 @@
       </div>
     </div>
 
-    <!-- ARPEGGIO -->
     <div class="section">
       <div class="section-label">Arpeggio</div>
       <div class="toggle-row">
@@ -567,7 +569,6 @@
 
   </aside>
 
-  <!-- ── MAIN ── -->
   <div class="main">
     <div class="piano-roll-container">
       <div class="roll-header">
@@ -583,7 +584,6 @@
       </div>
     </div>
 
-    <!-- Transport -->
     <div class="transport">
       <button class="btn btn-generate" id="btnGenerate">Generate</button>
       <button class="btn btn-play" id="btnPlay" disabled>▶ Play</button>
@@ -632,7 +632,7 @@ async function loadOptions() {
     setSelect('p_mode', 'minor');
     setSelect('p_progression', 'I-V-vi-IV');
     setSelect('p_chord_voicing', 'close');
-    setSelect('p_melody_rhythm', 'normal');
+    setSelect('p_melody_rhythm', 'modern_trap');
     setSelect('p_chord_rhythm', 'normal');
     setSelect('p_bass_pattern', 'root_fifth');
     setSelect('p_arp_pattern', 'up');
@@ -673,6 +673,7 @@ function buildParams() {
     melody_motif_repeat:   getVal('p_melody_motif_repeat'),
     melody_velocity:       getVal('p_melody_velocity'),
     melody_vel_var:        getVal('p_melody_vel_var'),
+    use_llm:               getVal('p_use_llm'), // Добавлен парсинг флажка LLM
     chord_rhythm:          getVal('p_chord_rhythm'),
     chord_velocity:        getVal('p_chord_velocity'),
     bass_pattern:          getVal('p_bass_pattern'),

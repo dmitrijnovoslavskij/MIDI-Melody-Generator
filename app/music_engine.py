@@ -1,7 +1,9 @@
 """
-music_engine.py — улучшенный генератор для мейнстрим звучания
+music_engine.py — гибридный генератор (Алгоритмика + локальная LLM)
 """
 import random
+import json
+import requests
 
 # ─── Note / Scale tables ───────────────────────────────────────────────────────
 NOTE_MAP = {
@@ -132,6 +134,63 @@ def get_progression_chords(root="C", mode="minor", progression_name="I-V-vi-IV",
               for d in degrees]
     return chords, degrees
 
+# ─── LLM Integration ───────────────────────────────────────────────────────────
+def get_llm_motif(mode, bpm):
+    """
+    Обращается к локальной LLM через Ollama для генерации осмысленного мотива.
+    """
+    prompt = f"""You are a multi-platinum producer creating a melodic trap beat (Juice Wrld style).
+    Generate a catchy, emotional lead melody motif (4 to 8 notes) for a {mode} scale at {bpm} BPM.
+    Respond strictly with valid JSON representing a list of notes. Do not include any markdown formatting or extra text.
+    Use 'degree' (1-7 for scale degree) and 'dur' (choose from: "sixteenth", "eighth", "dotted_eighth", "quarter", "half").
+    Example:
+    [
+      {{"degree": 1, "dur": "eighth"}},
+      {{"degree": 3, "dur": "sixteenth"}},
+      {{"degree": 2, "dur": "dotted_eighth"}}
+    ]"""
+    
+    try:
+        # Стучимся в локальную Ollama. Модель llama3 обычно стоит по умолчанию.
+        resp = requests.post("http://localhost:11434/api/generate", json={
+            "model": "llama3",
+            "prompt": prompt,
+            "stream": False,
+            "format": "json"
+        }, timeout=8)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            motif = json.loads(data["response"])
+            if isinstance(motif, list) and len(motif) > 0:
+                return motif
+    except Exception as e:
+        print(f"[LLM Motif] Ошибка или Ollama не запущена. Откат на алгоритмику: {e}")
+    return None
+
+def parse_llm_motif(llm_motif, scale_notes):
+    """Превращает JSON от LLM во внутренний формат ритма и нот"""
+    dur_map = {
+        "sixteenth": SIXTEENTH,
+        "eighth": EIGHTH,
+        "dotted_eighth": DOTTED_E,
+        "quarter": QUARTER,
+        "half": HALF
+    }
+    rhythm = []
+    notes = []
+    
+    for item in llm_motif:
+        deg = max(1, min(7, item.get("degree", 1))) - 1
+        note = scale_notes[deg % len(scale_notes)]
+        dur_str = item.get("dur", "eighth")
+        dur_ticks = dur_map.get(dur_str, EIGHTH)
+        
+        rhythm.append((dur_ticks, False))
+        notes.append(note)
+        
+    return rhythm, notes
+
 # ─── Rhythm generators ──────────────────────────────────────────────────────────
 def _make_rhythm(style: str, bar_ticks=WHOLE) -> list:
     if style == "whole":
@@ -147,9 +206,8 @@ def _make_rhythm(style: str, bar_ticks=WHOLE) -> list:
     if style == "syncopated":
         return [(EIGHTH, True), (DOTTED_Q, False), (DOTTED_Q, False), (EIGHTH, False)]
     if style == "modern_trap":
-        # Триоли и мощный баунс
-        TRIPLET_8 = TPB // 3        # Восьмая триоль
-        TRIPLET_16 = (TPB // 2) // 3 # Шестнадцатая триоль
+        TRIPLET_8 = TPB // 3       
+        TRIPLET_16 = (TPB // 2) // 3 
         atoms = [EIGHTH, DOTTED_E, SIXTEENTH, QUARTER, TRIPLET_8]
         weights = [0.25, 0.40, 0.15, 0.10, 0.10]
         rest_prob = 0.30
@@ -242,15 +300,16 @@ def generate_arpeggio(chords, bars=8, pattern="up", note_duration=EIGHTH, veloci
     return result
 
 # ─── Melody generator ──────────────────────────────────────────────────────────
-def generate_melody(scale_notes, chords, bars=8,
-                    rhythm_style="normal",
+def generate_melody(scale_notes, chords, bars=8, bpm=90, mode="minor",
+                    rhythm_style="modern_trap",
                     max_jump=3,
                     chord_prob=0.55,
                     leap_prob=0.10,
                     octave_range=(60, 84),
                     motif_repeat=True,
                     velocity_base=82,
-                    velocity_variance=12):
+                    velocity_variance=12,
+                    use_llm=True):
     melody = []
     lo, hi = octave_range
     melody_scale = [n for n in scale_notes if lo <= n <= hi] or scale_notes
@@ -262,13 +321,25 @@ def generate_melody(scale_notes, chords, bars=8,
     recent_notes = []
 
     motif_notes = []
+    llm_rhythm = None
     motif_captured = False
+
+    # Если включен LLM, пробуем получить умный мотив
+    if use_llm:
+        raw_motif = get_llm_motif(mode, bpm)
+        if raw_motif:
+            llm_rhythm, motif_notes = parse_llm_motif(raw_motif, melody_scale)
+            motif_captured = True
 
     for bar in range(bars):
         chord = chords[bar % len(chords)]
-        rhythm = _make_rhythm(rhythm_style)
+        
+        # Применяем ритм: либо от LLM (в первый такт или при повторе), либо генерим случайно
+        if motif_captured and (bar == 0 or (motif_repeat and bar % 4 in [0, 1, 2])):
+            rhythm = llm_rhythm if llm_rhythm else _make_rhythm(rhythm_style)
+        else:
+            rhythm = _make_rhythm(rhythm_style)
 
-        # Жесткая структура AABA для хука
         bar_in_loop = bar % 4
         replay = (motif_repeat and motif_captured and bar_in_loop in [1, 2])
         motif_pos = 0
@@ -278,6 +349,7 @@ def generate_melody(scale_notes, chords, bars=8,
                 melody.append({"note": 0, "duration": duration, "velocity": 0})
                 continue
 
+            # Если мы проигрываем мотив (от LLM или захваченный ранее)
             if replay and motif_pos < len(motif_notes):
                 orig_root = chords[0][0]
                 curr_root = chord[0]
@@ -287,6 +359,7 @@ def generate_melody(scale_notes, chords, bars=8,
                 motif_pos += 1
                 current = note
             else:
+                # Алгоритмическая генерация (или продолжение после мотива)
                 if len(recent_notes) >= 3 and len(set(recent_notes[-3:])) == 1:
                     note = _smooth_step(current, melody_scale, max_jump=max_jump + 1)
                 else:
@@ -298,6 +371,7 @@ def generate_melody(scale_notes, chords, bars=8,
                         note = leap
                 current = note
 
+            # Захватываем мотив, если LLM была выключена или недоступна
             if bar == 0 and not motif_captured:
                 motif_notes.append(note)
                 if len(motif_notes) >= random.randint(3, 5):
@@ -307,7 +381,7 @@ def generate_melody(scale_notes, chords, bars=8,
             if len(recent_notes) > 8:
                 recent_notes.pop(0)
 
-            # Гуманизация велосити и грув (имитация сильных/слабых долей)
+            # Гуманизация велосити
             is_downbeat = (i % 2 == 0)
             vel_mod = velocity_variance if is_downbeat else -velocity_variance
             vel = velocity_base + vel_mod + random.randint(-5, 5)
@@ -397,6 +471,7 @@ def generate_music_plan(
     melody_motif_repeat: bool = True,
     melody_velocity:   int  = 82,
     melody_vel_var:    int  = 12,
+    use_llm:         bool = True,
     chord_rhythm:    str  = "normal",
     chord_velocity:  int  = 58,
     bass_pattern:    str  = "root_fifth",
@@ -413,7 +488,7 @@ def generate_music_plan(
     )
 
     melody = generate_melody(
-        scale_notes, chords, bars=bars,
+        scale_notes, chords, bars=bars, bpm=bpm, mode=mode,
         rhythm_style=melody_rhythm,
         max_jump=melody_max_jump,
         chord_prob=melody_chord_prob,
@@ -422,6 +497,7 @@ def generate_music_plan(
         motif_repeat=melody_motif_repeat,
         velocity_base=melody_velocity,
         velocity_variance=melody_vel_var,
+        use_llm=use_llm
     )
 
     arp = None

@@ -464,7 +464,7 @@ class LauncherApp(tk.Tk):
         self._set_progress(50)
 
         # ── 5. Python dependencies ────────────────────────────────────────────
-        deps = ["certifi", "fastapi", "uvicorn", "mido", "python-multipart"]
+        deps = ["certifi", "fastapi", "uvicorn", "mido", "python-multipart", "requests"]
         total_deps = len(deps)
 
         run_silent([str(PY_BIN), "-m", "pip", "install", "--upgrade", "pip", "-q"])

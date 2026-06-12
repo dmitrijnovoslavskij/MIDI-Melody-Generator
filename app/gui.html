@@ -1012,13 +1012,18 @@ async function startPlayback() {
   // Выставляем BPM один раз — все треки используют одну и ту же формулу
   Tone.Transport.bpm.value = bpm;
 
-  // Считаем totalDuration по самому длинному треку
+  // Считаем totalDuration по последнему реальному звуку (не по хвостовым паузам)
   totalDuration = 0;
   Object.values(tracks).forEach(track => {
     if (!track) return;
-    let t = 0;
-    track.forEach(ev => { t += ev.duration; });
-    const sec = ticksToSeconds(t, bpm, tpb);
+    let t = 0, lastSound = 0;
+    track.forEach(ev => {
+      const vel = ev.velocity;
+      const notes = ev.notes !== undefined ? ev.notes : (ev.note !== undefined ? [ev.note] : []);
+      t += ev.duration;
+      if (vel > 0 && notes.some(n => n > 0)) lastSound = t;
+    });
+    const sec = ticksToSeconds(lastSound || t, bpm, tpb);
     if (sec > totalDuration) totalDuration = sec;
   });
 
@@ -1064,7 +1069,7 @@ async function startPlayback() {
       document.getElementById('btnPlay').textContent = '▶ Play';
       document.getElementById('progressFill').style.width = '0%';
     }
-  }, "+" + (totalDuration + 0.05));
+  }, "+" + totalDuration);
 
   Tone.Transport.start();
   isPlaying = true;

@@ -393,7 +393,7 @@
 
 <header>
   <h1>MIDI Gen</h1>
-  <span class="version">v2.2 REMI+LLM</span>
+  <span class="version">v2.1 Hybrid</span>
   <div class="header-spacer"></div>
   <div class="status-pill" id="statusPill">IDLE</div>
 </header>
@@ -448,8 +448,8 @@
     <div class="section">
       <div class="section-label">Melody</div>
       
-      <div class="toggle-row" title="Uses local Ollama LLM to generate melody via REMI tokens. Falls back to algorithmic if Ollama is not running.">
-        <label>REMI+LLM <span id="llmStatus" style="color:var(--muted);font-size:9px">(checking…)</span></label>
+      <div class="toggle-row">
+        <label>Use LLM (Ollama)</label>
         <label class="toggle">
           <input type="checkbox" id="p_use_llm" checked>
           <div class="toggle-track"></div>
@@ -991,67 +991,69 @@ function ticksToSeconds(ticks, bpm, tpb) {
 let isLoopRestart = false;
 async function startPlayback() {
   if (!currentMusic) return;
+
   if (!isLoopRestart) {
     await Tone.start();
-  }
-  Tone.Transport.stop();
-  Tone.Transport.cancel();
-
-  // Dispose old synths only on fresh start
-  if (!isLoopRestart) {
     Object.values(synths).forEach(s => { try { s.dispose(); } catch(e){} });
     synths = {
-      melody: makePianoSynth(),
+      melody:      makePianoSynth(),
       chord_track: makeChordSynth(),
-      bass: makeBassSynth(),
-      arp: makePianoSynth(),
+      bass:        makeBassSynth(),
+      arp:         makePianoSynth(),
     };
   }
   isLoopRestart = false;
 
-  const { tracks, bpm, tpb } = currentMusic;
-  // Schedule purely in seconds — do NOT set Transport.bpm to avoid
-  // Tone.js internal tick/BPM interfering with our manual time math.
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
 
-  // Calculate totalDuration from the longest track upfront
+  const { tracks, bpm, tpb } = currentMusic;
+
+  // Выставляем BPM один раз — все треки используют одну и ту же формулу
+  Tone.Transport.bpm.value = bpm;
+
+  // Считаем totalDuration по самому длинному треку
   totalDuration = 0;
   Object.values(tracks).forEach(track => {
     if (!track) return;
-    let t = 0; track.forEach(ev => { t += ev.duration; });
+    let t = 0;
+    track.forEach(ev => { t += ev.duration; });
     const sec = ticksToSeconds(t, bpm, tpb);
     if (sec > totalDuration) totalDuration = sec;
   });
 
-  // Schedule each track
+  // Шедулим все треки через "+Xs" — секунды от старта Transport.
+  // "+" гарантирует что все события привязаны к одной точке отсчёта,
+  // и никакие внутренние такты Tone.js не влияют на синхронизацию.
   Object.entries(tracks).forEach(([trackKey, track]) => {
     if (!track || !track.length) return;
     const synth = synths[trackKey];
     if (!synth) return;
 
-    let tick = 0;
+    let cumTicks = 0;
     track.forEach(ev => {
-      const notes = ev.notes !== undefined ? ev.notes : (ev.note !== undefined ? [ev.note] : []);
-      const dur = ev.duration;
-      const vel = ev.velocity;
-      const startSec = ticksToSeconds(tick, bpm, tpb);
-      const durSec   = ticksToSeconds(dur,  bpm, tpb);
-      tick += dur;
+      const notes = ev.notes !== undefined
+        ? ev.notes
+        : (ev.note !== undefined ? [ev.note] : []);
+      const durTicks = ev.duration;
+      const vel      = ev.velocity;
+
+      const startSec = ticksToSeconds(cumTicks, bpm, tpb);
+      const durSec   = ticksToSeconds(durTicks,  bpm, tpb);
+      cumTicks += durTicks;
 
       if (vel > 0 && notes.length > 0) {
         const freqs = notes.filter(n => n > 0).map(midiToFreq);
-        if (freqs.length > 0) {
-          Tone.Transport.schedule(time => {
-            synth.triggerAttackRelease(freqs, Math.max(0.05, durSec * 0.90), time, vel / 127);
-          }, startSec);
-        }
+        if (freqs.length === 0) return;
+        Tone.Transport.schedule(time => {
+          synth.triggerAttackRelease(freqs, Math.max(0.05, durSec * 0.88), time, vel / 127);
+        }, "+" + startSec);
       }
     });
   });
 
-  // Native transport loop is not compatible with second-scheduled events.
-  // Instead: schedule a callback at the end to restart or stop.
-  Tone.Transport.loop = false;
-  const stopId = Tone.Transport.schedule(() => {
+  // Конец трека
+  Tone.Transport.schedule(() => {
     if (loopEnabled) {
       isLoopRestart = true;
       startPlayback();
@@ -1062,21 +1064,16 @@ async function startPlayback() {
       document.getElementById('btnPlay').textContent = '▶ Play';
       document.getElementById('progressFill').style.width = '0%';
     }
-  }, totalDuration);
-  scheduledIds.push(stopId);
+  }, "+" + (totalDuration + 0.05));
 
-  isLoopRestart = false;
-
-  playStartTime = Tone.now();
   Tone.Transport.start();
   isPlaying = true;
   setStatus('PLAYING', 'playing');
   document.getElementById('btnPlay').textContent = '‖ Pause';
 
-  // Animate progress + playhead
   function animate() {
     if (!isPlaying) return;
-    const elapsed = Tone.Transport.seconds;
+    const elapsed  = Tone.Transport.seconds;
     const progress = Math.min(1, elapsed / totalDuration);
     document.getElementById('progressFill').style.width = (progress * 100) + '%';
     renderRoll(activeTrack);
@@ -1140,29 +1137,6 @@ window.addEventListener('resize', () => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 loadOptions();
-checkOllamaStatus();
-
-async function checkOllamaStatus() {
-  const el = document.getElementById('llmStatus');
-  if (!el) return;
-  try {
-    // Попытка достучаться до Ollama через бэкенд (не CORS напрямую)
-    const r = await fetch('/llm_status');
-    if (r.ok) {
-      const d = await r.json();
-      if (d.available) {
-        el.textContent = '✓ Ollama';
-        el.style.color = 'var(--green)';
-      } else {
-        el.textContent = '✗ fallback';
-        el.style.color = 'var(--amber)';
-      }
-    }
-  } catch(e) {
-    el.textContent = '✗ fallback';
-    el.style.color = 'var(--amber)';
-  }
-}
 </script>
 </body>
 </html>

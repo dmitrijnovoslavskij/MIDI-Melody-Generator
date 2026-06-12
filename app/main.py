@@ -1,4 +1,5 @@
 import os
+import requests
 import time
 import json
 from fastapi import FastAPI, HTTPException
@@ -123,6 +124,20 @@ def download_midi(path: str):
         media_type="audio/midi",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+@app.get("/llm_status")
+def llm_status():
+    """Проверяет доступность Ollama."""
+    try:
+        r = requests.get("http://localhost:11434/api/tags", timeout=3)
+        models = [m["name"] for m in r.json().get("models", [])]
+        # Ищем llama3 или любую другую модель
+        llm_model = next((m for m in models if "llama" in m.lower()), None)
+        if llm_model is None and models:
+            llm_model = models[0]
+        return {"available": bool(models), "model": llm_model, "all_models": models}
+    except Exception as e:
+        return {"available": False, "model": None, "error": str(e)}
 
 @app.get("/options")
 def options():

@@ -393,7 +393,7 @@
 
 <header>
   <h1>MIDI Gen</h1>
-  <span class="version">v2.1 Hybrid</span>
+  <span class="version">v2.2 REMI+LLM</span>
   <div class="header-spacer"></div>
   <div class="status-pill" id="statusPill">IDLE</div>
 </header>
@@ -448,8 +448,8 @@
     <div class="section">
       <div class="section-label">Melody</div>
       
-      <div class="toggle-row">
-        <label>Use LLM (Ollama)</label>
+      <div class="toggle-row" title="Uses local Ollama LLM to generate melody via REMI tokens. Falls back to algorithmic if Ollama is not running.">
+        <label>REMI+LLM <span id="llmStatus" style="color:var(--muted);font-size:9px">(checking…)</span></label>
         <label class="toggle">
           <input type="checkbox" id="p_use_llm" checked>
           <div class="toggle-track"></div>
@@ -1140,6 +1140,29 @@ window.addEventListener('resize', () => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 loadOptions();
+checkOllamaStatus();
+
+async function checkOllamaStatus() {
+  const el = document.getElementById('llmStatus');
+  if (!el) return;
+  try {
+    // Попытка достучаться до Ollama через бэкенд (не CORS напрямую)
+    const r = await fetch('/llm_status');
+    if (r.ok) {
+      const d = await r.json();
+      if (d.available) {
+        el.textContent = '✓ Ollama';
+        el.style.color = 'var(--green)';
+      } else {
+        el.textContent = '✗ fallback';
+        el.style.color = 'var(--amber)';
+      }
+    }
+  } catch(e) {
+    el.textContent = '✗ fallback';
+    el.style.color = 'var(--amber)';
+  }
+}
 </script>
 </body>
 </html>
